@@ -344,6 +344,13 @@ extension UsageStore {
             self.codexAccountSnapshots = []
         }
 
+        if provider == .grok, self.shouldFetchAllGrokVisibleAccounts() {
+            await self.refreshGrokVisibleAccountsForMenu(generation: generation)
+            return nil
+        } else if provider == .grok {
+            self.grokAccountSnapshots = []
+        }
+
         if provider == .kilo, self.shouldFanOutKiloScopes() {
             await self.refreshKiloScopes(generation: generation)
             guard self.isCurrentProviderRefreshGeneration(provider, generation: generation) else { return nil }
