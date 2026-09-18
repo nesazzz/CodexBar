@@ -918,8 +918,11 @@ extension UsageStore {
             provider: provider,
             settings: self.settings,
             account: account)
-        if provider == .grok, grokActiveSourceOverride != nil {
-            sourceMode = .oauth
+        if provider == .grok {
+            let grokActiveSource = grokActiveSourceOverride ?? self.settings.grokResolvedActiveSource
+            if grokActiveSource.usesManagedHome {
+                sourceMode = .oauth
+            }
         }
         let snapshot = ProviderRegistry.makeSettingsSnapshot(
             settings: self.settings,

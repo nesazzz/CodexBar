@@ -79,7 +79,7 @@ final class GrokAccountSwitcherView: NSView {
                     target: self,
                     action: #selector(self.handleSelect))
                 button.identifier = NSUserInterfaceItemIdentifier(account.id)
-                button.toolTip = account.displayName
+                button.toolTip = title
                 button.isBordered = false
                 button.setButtonType(.toggle)
                 button.controlSize = .small
@@ -133,4 +133,10 @@ final class GrokAccountSwitcherView: NSView {
         self.updateButtonStyles()
         self.onSelect(account)
     }
+
+    #if DEBUG
+    func _test_buttonToolTips() -> [String] {
+        self.buttons.compactMap(\.toolTip)
+    }
+    #endif
 }

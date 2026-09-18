@@ -157,3 +157,12 @@ public enum GrokVisibleAccountProjectionFactory {
             hasUnreadableAddedAccountStore: hasUnreadableAddedAccountStore)
     }
 }
+
+public enum GrokFetchedAccountIdentity {
+    public static func matches(_ fetchedEmail: String?, storedEmail: String) -> Bool {
+        guard let fetched = fetchedEmail?.trimmingCharacters(in: .whitespacesAndNewlines), !fetched.isEmpty else {
+            return true
+        }
+        return ManagedGrokAccount.normalizeEmail(fetched) == ManagedGrokAccount.normalizeEmail(storedEmail)
+    }
+}

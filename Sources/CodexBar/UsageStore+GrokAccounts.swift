@@ -48,8 +48,11 @@ extension UsageStore {
             let prior = priorSnapshots.first { $0.id == account.id }
             switch result.outcome.result {
             case let .success(fetchResult):
-                let usage = self.relabeledGrokUsage(fetchResult.usage, account: account)
-                guard self.grokUsageMatchesAccount(usage, account: account) else {
+                let fetched = fetchResult.usage.scoped(to: .grok)
+                guard GrokFetchedAccountIdentity.matches(
+                    fetched.accountEmail(for: .grok),
+                    storedEmail: account.email)
+                else {
                     snapshots.append(GrokAccountUsageSnapshot(
                         account: account,
                         snapshot: prior?.snapshot,
@@ -57,6 +60,7 @@ extension UsageStore {
                         sourceLabel: prior?.sourceLabel))
                     continue
                 }
+                let usage = self.relabeledGrokUsage(fetched, account: account)
                 snapshots.append(GrokAccountUsageSnapshot(
                     account: account,
                     snapshot: usage,
@@ -114,10 +118,5 @@ extension UsageStore {
             accountEmail: account.email,
             accountOrganization: scoped.accountOrganization(for: .grok),
             loginMethod: scoped.loginMethod(for: .grok)))
-    }
-
-    private func grokUsageMatchesAccount(_ usage: UsageSnapshot, account: GrokVisibleAccount) -> Bool {
-        guard let email = usage.accountEmail(for: .grok) else { return true }
-        return ManagedGrokAccount.normalizeEmail(email) == account.email
     }
 }

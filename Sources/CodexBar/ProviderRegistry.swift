@@ -197,13 +197,11 @@ struct ProviderRegistry {
             }
         }
         if provider == .grok {
-            let usingPastedToken = grokActiveSourceOverride == nil
-                && GrokCredentialRouting.normalizedOAuthToken(account?.token) != nil
-            if !usingPastedToken {
-                let grokActiveSource = grokActiveSourceOverride ?? settings.grokResolvedActiveSource
-                if let grokHomePath = settings.grokHomePath(forActiveSource: grokActiveSource) {
-                    env = GrokHomeScope.scopedEnvironment(base: env, grokHome: grokHomePath)
-                }
+            let grokActiveSource = grokActiveSourceOverride ?? settings.grokResolvedActiveSource
+            if grokActiveSource.usesManagedHome,
+               let grokHomePath = settings.grokHomePath(forActiveSource: grokActiveSource)
+            {
+                env = GrokHomeScope.scopedEnvironment(base: env, grokHome: grokHomePath)
             }
         }
         return env

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import CodexBar
@@ -214,6 +215,125 @@ struct GrokAccountMenuDisplayTests {
     }
 
     private static func account(_ email: String) -> GrokVisibleAccount {
+        GrokVisibleAccount(
+            id: email,
+            email: email,
+            storedAccountID: nil,
+            selectionSource: .liveSystem,
+            managedHomePath: nil,
+            isActive: true,
+            isLive: true,
+            canReauthenticate: true,
+            canRemove: false)
+    }
+}
+
+struct GrokManagedAccountRoutingTests {
+    @Test
+    @MainActor
+    func `live routing preserves ambient GROK_HOME and oauth token`() {
+        let settings = testSettingsStore(suiteName: "GrokRouting-live")
+        let env = ProviderRegistry.makeEnvironment(
+            base: [
+                "GROK_HOME": "/tmp/ambient-grok",
+                GrokSettingsReader.oauthTokenEnvironmentKey: "ambient-token",
+            ],
+            provider: .grok,
+            settings: settings,
+            tokenOverride: nil)
+        #expect(env["GROK_HOME"] == "/tmp/ambient-grok")
+        #expect(env[GrokSettingsReader.oauthTokenEnvironmentKey] == "ambient-token")
+    }
+
+    @Test
+    @MainActor
+    func `managed routing scopes home and strips ambient oauth token`() throws {
+        let settings = testSettingsStore(suiteName: "GrokRouting-managed")
+        let accountID = UUID()
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "grok-managed-\(accountID.uuidString)",
+            isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let store = FileManagedGrokAccountStore()
+        let previous = (try? store.loadAccounts()) ?? ManagedGrokAccountSet(version: 1, accounts: [])
+        defer { try? store.storeAccounts(previous) }
+        try store.storeAccounts(
+            ManagedGrokAccountSet(
+                version: 1,
+                accounts: [
+                    ManagedGrokAccount(
+                        id: accountID,
+                        email: "managed@example.com",
+                        managedHomePath: home.path,
+                        createdAt: 1,
+                        updatedAt: 1,
+                        lastAuthenticatedAt: 1),
+                ]))
+        settings.grokActiveSource = .managedAccount(id: accountID)
+
+        let env = ProviderRegistry.makeEnvironment(
+            base: [
+                "GROK_HOME": "/tmp/ambient-grok",
+                GrokSettingsReader.oauthTokenEnvironmentKey: "ambient-token",
+            ],
+            provider: .grok,
+            settings: settings,
+            tokenOverride: nil)
+        #expect(env["GROK_HOME"] == GrokHomeScope.normalizedHomePath(home.path))
+        #expect(env[GrokSettingsReader.oauthTokenEnvironmentKey] == nil)
+    }
+
+    @Test
+    @MainActor
+    func `live override keeps ambient credentials even when a managed account is selected`() {
+        let settings = testSettingsStore(suiteName: "GrokRouting-live-override")
+        settings.grokActiveSource = .managedAccount(id: UUID())
+        let env = ProviderRegistry.makeEnvironment(
+            base: [
+                "GROK_HOME": "/tmp/ambient-grok",
+                GrokSettingsReader.oauthTokenEnvironmentKey: "ambient-token",
+            ],
+            provider: .grok,
+            settings: settings,
+            tokenOverride: nil,
+            grokActiveSourceOverride: .liveSystem)
+        #expect(env["GROK_HOME"] == "/tmp/ambient-grok")
+        #expect(env[GrokSettingsReader.oauthTokenEnvironmentKey] == "ambient-token")
+    }
+
+    @Test
+    func `fetched identity is compared before any relabel`() {
+        #expect(GrokFetchedAccountIdentity.matches("Managed@Example.com", storedEmail: "managed@example.com"))
+        #expect(GrokFetchedAccountIdentity.matches("other@example.com", storedEmail: "managed@example.com") == false)
+        #expect(GrokFetchedAccountIdentity.matches(nil, storedEmail: "managed@example.com"))
+        #expect(GrokFetchedAccountIdentity.matches("  ", storedEmail: "managed@example.com"))
+    }
+}
+
+struct GrokAccountSwitcherPrivacyTests {
+    @Test
+    @MainActor
+    func `hide personal info does not put email in tooltips`() {
+        let accounts = [
+            GrokAccountMenuDisplayTestsAccount.make("alpha@example.com"),
+            GrokAccountMenuDisplayTestsAccount.make("beta@example.com"),
+        ]
+        let view = GrokAccountSwitcherView(
+            accounts: accounts,
+            selectedAccountID: accounts[0].id,
+            width: 320,
+            hidePersonalInfo: true,
+            onSelect: { _ in })
+        let tooltips = view._test_buttonToolTips()
+        #expect(!tooltips.isEmpty)
+        #expect(!tooltips.contains { $0.contains("@") })
+    }
+}
+
+private enum GrokAccountMenuDisplayTestsAccount {
+    static func make(_ email: String) -> GrokVisibleAccount {
         GrokVisibleAccount(
             id: email,
             email: email,

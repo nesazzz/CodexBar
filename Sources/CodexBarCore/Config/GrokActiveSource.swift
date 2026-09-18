@@ -4,6 +4,11 @@ public enum GrokActiveSource: Codable, Equatable, Sendable {
     case liveSystem
     case managedAccount(id: UUID)
 
+    public var usesManagedHome: Bool {
+        if case .managedAccount = self { return true }
+        return false
+    }
+
     private enum CodingKeys: String, CodingKey {
         case kind
         case accountID
