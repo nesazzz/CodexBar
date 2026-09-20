@@ -309,6 +309,11 @@ struct GrokOAuthFetchStrategy: ProviderFetchStrategy {
     func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
         try await self.webStrategy.fetch(context) { capturedCredentials in
             let credentials = try capturedCredentials.get()
+            if let expectedEmail = context.grokExpectedAccountEmail,
+               !GrokFetchedAccountIdentity.matches(credentials.email, storedEmail: expectedEmail)
+            {
+                throw GrokWebBillingError.missingCredentials
+            }
             guard !credentials.isExpired else {
                 throw GrokWebBillingError.missingCredentials
             }

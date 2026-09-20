@@ -228,6 +228,7 @@ struct GrokAccountMenuDisplayTests {
     }
 }
 
+@Suite(.serialized)
 struct GrokManagedAccountRoutingTests {
     @Test
     @MainActor
@@ -247,7 +248,7 @@ struct GrokManagedAccountRoutingTests {
 
     @Test
     @MainActor
-    func `managed routing scopes home and strips ambient oauth token`() throws {
+    func `managed routing scopes home and strips ambient oauth token`() async throws {
         let settings = testSettingsStore(suiteName: "GrokRouting-managed")
         let accountID = UUID()
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -283,11 +284,70 @@ struct GrokManagedAccountRoutingTests {
             tokenOverride: nil)
         #expect(env["GROK_HOME"] == GrokHomeScope.normalizedHomePath(home.path))
         #expect(env[GrokSettingsReader.oauthTokenEnvironmentKey] == nil)
+
+        settings.addTokenAccount(provider: .grok, label: "Pasted A", token: "fake-token-a")
+        settings.addTokenAccount(provider: .grok, label: "Pasted B", token: "fake-token-b")
+        let usageStore = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing,
+            environmentBase: [:])
+        let baseSpec = try #require(usageStore.providerSpecs[.grok])
+        let baseDescriptor = baseSpec.descriptor
+        usageStore.providerSpecs[.grok] = ProviderSpec(
+            style: baseSpec.style,
+            isEnabled: { true },
+            descriptor: ProviderDescriptor(
+                id: .grok,
+                metadata: baseDescriptor.metadata,
+                branding: baseDescriptor.branding,
+                tokenCost: baseDescriptor.tokenCost,
+                fetchPlan: ProviderFetchPlan(
+                    sourceModes: [.oauth],
+                    pipeline: ProviderFetchPipeline { _ in [GrokManagedOwnershipTestStrategy()] }),
+                cli: baseDescriptor.cli),
+            makeFetchContext: baseSpec.makeFetchContext)
+        for layout in [MultiAccountMenuLayout.segmented, .stacked] {
+            settings.multiAccountMenuLayout = layout
+            #expect(usageStore.shouldFetchAllGrokVisibleAccounts())
+            await usageStore.refreshProvider(.grok, allowDisabled: true)
+            #expect(usageStore.snapshot(for: .grok)?.accountEmail(for: .grok) == "managed@example.com")
+            #expect(usageStore.accountSnapshots[.grok]?.isEmpty != false)
+        }
+        let managedContext = usageStore.makeFetchContext(provider: .grok, override: nil)
+        #expect(managedContext.sourceMode == .oauth)
+        #expect(managedContext.selectedTokenAccountID == nil)
+        #expect(managedContext.grokExpectedAccountEmail == "managed@example.com")
+
+        let pastedAccount = ProviderTokenAccount(
+            id: UUID(), label: "Pasted", token: "fake-pasted-token", addedAt: 1, lastUsed: nil)
+        let pastedContext = usageStore.makeFetchContext(
+            provider: .grok,
+            override: TokenAccountOverride(provider: .grok, account: pastedAccount))
+        #expect(pastedContext.selectedTokenAccountID == pastedAccount.id)
+        #expect(pastedContext.grokExpectedAccountEmail == nil)
+        #expect(pastedContext.env["GROK_HOME"] != home.path)
+        #expect(pastedContext.env[GrokSettingsReader.oauthTokenEnvironmentKey] == pastedAccount.token)
     }
 
     @Test
     @MainActor
-    func `live override keeps ambient credentials even when a managed account is selected`() {
+    func `removed managed override cannot fall back to ambient credentials`() {
+        let settings = testSettingsStore(suiteName: "GrokRouting-removed")
+        let env = ProviderRegistry.makeEnvironment(
+            base: ["GROK_HOME": "/tmp/ambient-grok", GrokSettingsReader.oauthTokenEnvironmentKey: "fake-token"],
+            provider: .grok,
+            settings: settings,
+            tokenOverride: nil,
+            grokActiveSourceOverride: .managedAccount(id: UUID()))
+        #expect(env["GROK_HOME"] == "/dev/null")
+        #expect(env[GrokSettingsReader.oauthTokenEnvironmentKey] == nil)
+    }
+
+    @Test
+    @MainActor
+    func `explicit System override binds the System home and removes competing credentials`() {
         let settings = testSettingsStore(suiteName: "GrokRouting-live-override")
         settings.grokActiveSource = .managedAccount(id: UUID())
         let env = ProviderRegistry.makeEnvironment(
@@ -299,16 +359,44 @@ struct GrokManagedAccountRoutingTests {
             settings: settings,
             tokenOverride: nil,
             grokActiveSourceOverride: .liveSystem)
-        #expect(env["GROK_HOME"] == "/tmp/ambient-grok")
-        #expect(env[GrokSettingsReader.oauthTokenEnvironmentKey] == "ambient-token")
+        #expect(env["GROK_HOME"] == settings.grokHomePath(forActiveSource: .liveSystem))
+        #expect(env[GrokSettingsReader.oauthTokenEnvironmentKey] == nil)
     }
 
     @Test
     func `fetched identity is compared before any relabel`() {
         #expect(GrokFetchedAccountIdentity.matches("Managed@Example.com", storedEmail: "managed@example.com"))
         #expect(GrokFetchedAccountIdentity.matches("other@example.com", storedEmail: "managed@example.com") == false)
-        #expect(GrokFetchedAccountIdentity.matches(nil, storedEmail: "managed@example.com"))
-        #expect(GrokFetchedAccountIdentity.matches("  ", storedEmail: "managed@example.com"))
+        #expect(!GrokFetchedAccountIdentity.matches(nil, storedEmail: "managed@example.com"))
+        #expect(!GrokFetchedAccountIdentity.matches("  ", storedEmail: "managed@example.com"))
+    }
+}
+
+private struct GrokManagedOwnershipTestStrategy: ProviderFetchStrategy {
+    let id = "grok-test-owner"
+    let kind: ProviderFetchKind = .oauth
+
+    func isAvailable(_: ProviderFetchContext) async -> Bool { true }
+
+    func shouldFallback(on _: any Error, context _: ProviderFetchContext) -> Bool { false }
+
+    func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
+        #expect(context.selectedTokenAccountID == nil)
+        #expect(context.env[GrokSettingsReader.oauthTokenEnvironmentKey] == nil)
+        let email = try #require(context.grokExpectedAccountEmail)
+        #expect(!email.isEmpty)
+        return ProviderFetchResult(
+            usage: UsageSnapshot(primary: nil, secondary: nil, updatedAt: Date()).withIdentity(
+                ProviderIdentitySnapshot(
+                    providerID: UsageProvider.grok.instanceID,
+                    accountEmail: email,
+                    accountOrganization: nil,
+                    loginMethod: nil)),
+            credits: nil,
+            dashboard: nil,
+            sourceLabel: "oauth",
+            strategyID: self.id,
+            strategyKind: self.kind)
     }
 }
 

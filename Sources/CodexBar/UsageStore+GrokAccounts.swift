@@ -2,8 +2,28 @@ import CodexBarCore
 import Foundation
 
 extension UsageStore {
+    func grokFetchSource(
+        _ provider: UsageProvider,
+        tokenOverride: TokenAccountOverride?,
+        sourceOverride: GrokActiveSource?) -> GrokActiveSource?
+    {
+        guard provider == .grok else { return nil }
+        if let sourceOverride { return sourceOverride }
+        guard tokenOverride == nil else { return nil }
+        let source = self.settings.grokResolvedActiveSource
+        return source.usesManagedHome ? source : nil
+    }
+
+    func grokExpectedAccountEmail(for source: GrokActiveSource?) -> String? {
+        source.map { source in
+            self.settings.grokVisibleAccountProjection.visibleAccounts
+                .first { $0.selectionSource == source }?.email ?? ""
+        }
+    }
+
     func shouldFetchAllGrokVisibleAccounts() -> Bool {
-        self.settings.multiAccountMenuLayout == .stacked &&
+        !self.settings.grokManagedAccounts.isEmpty ||
+            self.settings.multiAccountMenuLayout == .stacked &&
             self.settings.grokVisibleAccountProjection.visibleAccounts.count > 1
     }
 
@@ -25,8 +45,10 @@ extension UsageStore {
 
     func refreshGrokVisibleAccountsForMenu(generation: UInt64? = nil) async {
         let projection = self.settings.grokVisibleAccountProjection
-        let accounts = projection.visibleAccounts
-        guard accounts.count > 1 else {
+        let accounts = self.settings.multiAccountMenuLayout == .stacked
+            ? projection.visibleAccounts
+            : projection.visibleAccounts.filter { $0.id == projection.activeVisibleAccountID }
+        guard !accounts.isEmpty else {
             self.grokAccountSnapshots = []
             return
         }
@@ -44,7 +66,10 @@ extension UsageStore {
 
         let currentProjection = self.settings.grokVisibleAccountProjection
         for result in results {
-            let account = currentProjection.account(id: result.account.id) ?? result.account
+            guard let account = currentProjection.account(id: result.account.id),
+                  account.email == result.account.email,
+                  account.managedHomePath == result.account.managedHomePath
+            else { continue }
             let prior = priorSnapshots.first { $0.id == account.id }
             switch result.outcome.result {
             case let .success(fetchResult):
@@ -84,7 +109,7 @@ extension UsageStore {
         }
 
         self.grokAccountSnapshots = snapshots
-        if let selectedOutcome {
+        if currentProjection.activeVisibleAccountID == originalVisibleAccountID, let selectedOutcome {
             await self.applySelectedOutcome(
                 selectedOutcome,
                 provider: .grok,
@@ -102,10 +127,20 @@ extension UsageStore {
     {
         var results: [(account: GrokVisibleAccount, outcome: ProviderFetchOutcome)] = []
         for account in accounts {
-            let outcome = await self.fetchOutcome(
+            let context = self.makeFetchContext(
                 provider: .grok,
                 override: nil,
                 grokActiveSourceOverride: account.selectionSource)
+            guard context.grokExpectedAccountEmail == account.email,
+                  context.env["GROK_HOME"] == account.managedHomePath
+            else {
+                results.append((account: account, outcome: ProviderFetchOutcome(
+                    result: .failure(GrokWebBillingError.missingCredentials), attempts: [])))
+                continue
+            }
+            let descriptor = self.providerSpecs[.grok]?.descriptor
+                ?? ProviderDescriptorRegistry.descriptor(for: .grok)
+            let outcome = await descriptor.fetchOutcome(context: context)
             results.append((account: account, outcome: outcome))
         }
         return results

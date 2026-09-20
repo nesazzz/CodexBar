@@ -161,7 +161,7 @@ public enum GrokVisibleAccountProjectionFactory {
 public enum GrokFetchedAccountIdentity {
     public static func matches(_ fetchedEmail: String?, storedEmail: String) -> Bool {
         guard let fetched = fetchedEmail?.trimmingCharacters(in: .whitespacesAndNewlines), !fetched.isEmpty else {
-            return true
+            return false
         }
         return ManagedGrokAccount.normalizeEmail(fetched) == ManagedGrokAccount.normalizeEmail(storedEmail)
     }

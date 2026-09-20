@@ -22,7 +22,9 @@ CodexBar can add extra SuperGrok OAuth accounts without overwriting `~/.grok`.
 - Each added account keeps its own `auth.json` under `Application Support/CodexBar/managed-grok-homes/`.
 - The live `~/.grok` account still appears as **(System)** when present.
 - Usage refreshes set `GROK_HOME` per account and use the SuperGrok OAuth billing path. Cookie fallback is disabled for these stacked refreshes.
-- The menu follows Settings → Display multi-account layout, same as Codex: segmented switcher by default, stacked cards when that layout is selected.
+- The menu follows Settings → Menu → Content → Multi-account layout, same as Codex: segmented switcher by default, stacked cards when that layout is selected.
+- Explicit System cards use the System auth file and OAuth, ignoring competing pasted tokens and browser cookies. Ordinary ambient refreshes keep their existing credential precedence.
+- Managed refreshes use their own account snapshots, including when only one managed account exists; they never populate pasted-token account caches. The captured OAuth identity must match the expected account before billing is requested.
 - CodexBar does not copy or refresh Grok tokens; re-auth runs `grok login --device-auth` against that home.
 
 ## Settings source picker

@@ -3,6 +3,35 @@ import Testing
 @testable import CodexBarCore
 
 struct GrokAccountContextTests {
+    @Test(arguments: ["b@example.com", ""], [
+        GrokOAuthFetchStrategy.Mode.proxyThenGrpc, .proxy, .grpc,
+    ])
+    func `scoped oauth rejects reassigned or unknown owners before billing`(
+        expectedEmail: String, mode: GrokOAuthFetchStrategy.Mode) async throws
+    {
+        let fixture = try GrokAccountFixture()
+        defer { fixture.remove() }
+        try fixture.write(account: "a")
+        let unexpectedBilling: GrokWebFetchStrategy.ProxyBillingFetch = { _ in
+            Issue.record("Mismatched account must not reach billing")
+            throw GrokWebBillingError.invalidResponse
+        }
+        let strategy = GrokOAuthFetchStrategy(
+            mode: mode,
+            proxyBilling: unexpectedBilling,
+            grpcBilling: unexpectedBilling,
+            webStrategy: .isolated,
+            settingsTier: { _ in
+                Issue.record("Mismatched account must not reach enrichment")
+                return nil
+            })
+        await #expect {
+            _ = try await strategy.fetch(fixture.context(expectedEmail: expectedEmail))
+        } throws: { error in
+            if case GrokWebBillingError.missingCredentials = error { true } else { false }
+        }
+    }
+
     @Test
     func `billing retains account A when auth is replaced while suspended`() async throws {
         let fixture = try GrokAccountFixture()
@@ -312,7 +341,7 @@ private struct GrokAccountFixture: Sendable {
         try? FileManager.default.removeItem(at: self.home)
     }
 
-    func context(sourceMode: ProviderSourceMode = .oauth) -> ProviderFetchContext {
+    func context(sourceMode: ProviderSourceMode = .oauth, expectedEmail: String? = nil) -> ProviderFetchContext {
         #if os(macOS)
         let browserDetection = BrowserDetection(
             homeDirectory: self.home.path,
@@ -341,7 +370,8 @@ private struct GrokAccountFixture: Sendable {
             settings: nil,
             fetcher: UsageFetcher(environment: environment),
             claudeFetcher: ClaudeUsageFetcher(browserDetection: browserDetection),
-            browserDetection: browserDetection)
+            browserDetection: browserDetection,
+            grokExpectedAccountEmail: expectedEmail)
     }
 }
 

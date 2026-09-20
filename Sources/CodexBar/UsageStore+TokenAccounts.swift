@@ -910,20 +910,18 @@ extension UsageStore {
         includeCredits: Bool = false,
         claudeOwnerCLIRecoveryOnly: Bool = false) -> ProviderFetchContext
     {
-        let account = ProviderTokenAccountSelection.selectedAccount(
+        let grokSource = self.grokFetchSource(
+            provider,
+            tokenOverride: override,
+            sourceOverride: grokActiveSourceOverride)
+        let account = grokSource == nil ? ProviderTokenAccountSelection.selectedAccount(
             provider: provider,
             settings: self.settings,
-            override: override)
-        var sourceMode = ProviderRegistry.resolvedSourceMode(
+            override: override) : nil
+        let sourceMode: ProviderSourceMode = grokSource != nil ? .oauth : ProviderRegistry.resolvedSourceMode(
             provider: provider,
             settings: self.settings,
             account: account)
-        if provider == .grok {
-            let grokActiveSource = grokActiveSourceOverride ?? self.settings.grokResolvedActiveSource
-            if grokActiveSource.usesManagedHome {
-                sourceMode = .oauth
-            }
-        }
         let snapshot = ProviderRegistry.makeSettingsSnapshot(
             settings: self.settings,
             tokenOverride: override,
@@ -959,6 +957,7 @@ extension UsageStore {
             claudeFetcher: self.claudeFetcher,
             browserDetection: self.browserDetection,
             selectedTokenAccountID: account?.id,
+            grokExpectedAccountEmail: self.grokExpectedAccountEmail(for: grokSource),
             tokenAccountTokenUpdater: { [weak self] provider, accountID, token in
                 await MainActor.run {
                     guard let self, provider == contextProvider,
