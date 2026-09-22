@@ -22,24 +22,24 @@ extension UsageStore {
     }
 
     func shouldFetchAllGrokVisibleAccounts() -> Bool {
-        !self.settings.grokManagedAccounts.isEmpty ||
-            self.settings.multiAccountMenuLayout == .stacked &&
-            self.settings.grokVisibleAccountProjection.visibleAccounts.count > 1
+        self.settings.grokUsesHomeAccounts
     }
 
     func activateCachedGrokAccountSnapshot(visibleAccountID: String) {
-        guard self.settings.grokVisibleAccountProjection.activeVisibleAccountID == visibleAccountID else { return }
-        guard let cached = self.grokAccountSnapshots.first(where: { $0.id == visibleAccountID }) else {
+        let projection = self.settings.grokVisibleAccountProjection
+        guard projection.activeVisibleAccountID == visibleAccountID else { return }
+        guard let account = projection.account(id: visibleAccountID),
+              let cached = self.grokAccountSnapshots.first(where: { $0.matches(account) })
+        else {
             self.snapshots[.grok] = nil
+            self.lastKnownResetSnapshots[.grok] = nil
             self.errors[.grok] = nil
             self.lastSourceLabels[.grok] = nil
             return
         }
         self.snapshots[.grok] = cached.snapshot
         self.errors[.grok] = cached.error
-        if let snapshot = cached.snapshot {
-            self.lastKnownResetSnapshots[.grok] = snapshot
-        }
+        self.lastKnownResetSnapshots[.grok] = cached.snapshot
         self.lastSourceLabels[.grok] = cached.sourceLabel
     }
 
@@ -54,6 +54,9 @@ extension UsageStore {
         }
 
         let originalVisibleAccountID = projection.activeVisibleAccountID
+        if let originalVisibleAccountID {
+            self.activateCachedGrokAccountSnapshot(visibleAccountID: originalVisibleAccountID)
+        }
         let priorSnapshots = self.grokAccountSnapshots
         var snapshots: [GrokAccountUsageSnapshot] = []
         var selectedOutcome: ProviderFetchOutcome?
@@ -70,7 +73,7 @@ extension UsageStore {
                   account.email == result.account.email,
                   account.managedHomePath == result.account.managedHomePath
             else { continue }
-            let prior = priorSnapshots.first { $0.id == account.id }
+            let prior = priorSnapshots.first { $0.matches(account) }
             switch result.outcome.result {
             case let .success(fetchResult):
                 let fetched = fetchResult.usage.scoped(to: .grok)
@@ -109,6 +112,9 @@ extension UsageStore {
         }
 
         self.grokAccountSnapshots = snapshots
+        if let activeID = currentProjection.activeVisibleAccountID {
+            self.activateCachedGrokAccountSnapshot(visibleAccountID: activeID)
+        }
         if currentProjection.activeVisibleAccountID == originalVisibleAccountID, let selectedOutcome {
             await self.applySelectedOutcome(
                 selectedOutcome,

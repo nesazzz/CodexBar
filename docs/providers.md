@@ -8,7 +8,7 @@ read_when:
 
 # Providers
 
-CodexBar currently registers 69 provider IDs. Some companies expose multiple surfaces, such as Codex vs OpenAI API or
+CodexBar currently registers 77 provider IDs. Some companies expose multiple surfaces, such as Codex vs OpenAI API or
 OpenCode vs OpenCode Go, because the auth source and quota shape differ.
 
 ## Fetch strategies (current)
@@ -93,10 +93,17 @@ complete when the available scan window covers fewer days.
 | ZoomMate | Chrome cookie auto-import + cookie-to-token minting, or manual cURL capture, for the credits/status API (`web`). |
 | Warp | API token (config/env) → GraphQL request limits (`api`). |
 | ElevenLabs | API key from config/env → subscription usage API (`api`). |
+| [Nous Portal](nous.md) | Read-only Hermes login or explicit access token → bundled plugin for monthly credits and top-up balances (`api`). |
+| [Muse Code](muse.md) | Existing CLI device-code login → bundled plugin for reported five-hour and weekly subscription quotas (`oauth`). |
+| [CodeRabbit](coderabbit.md) | One bounded local CLI usage report for review counts and billing state (`cli`); no quota or balance is inferred. |
+| [Replicate](replicate.md) | Native Chrome cookie candidates or a manual header → bundled plugin for monthly spend and optional prepaid credits (`web`). |
+| [TypeSafe](typesafe.md) | Chrome cookies or a manual header → bundled plugin for billing spend and credit balance (`web`). |
+| [Hugging Face](huggingface.md) | Access token from settings/env/CLI → bundled plugin for Inference Providers charges, optional ZeroGPU quota, and token-scoped identity (`api`). |
+| [v0](v0.md) | API key and optional project scope from settings/env → bundled plugin for Platform API billing and rate limits (`api`). |
 | Windsurf | Web session bundle from browser localStorage (`web`) → local SQLite cache (`local`). |
 | Ollama | API key verifies Cloud API access (`api`); browser cookies expose Cloud quota windows (`web`). |
 | Synthetic | API key from config/env → quota API (`api`). |
-| OpenRouter | API token (config, overrides env) → credits API (`api`). |
+| OpenRouter | API token (config, overrides env) → key quota and credits APIs; a management key enables account Activity on the official API (`api`). |
 | Perplexity | Browser cookies/manual cookie/env session token → credits API (`web`). |
 | Xiaomi MiMo | Browser cookies → balance/token plan endpoints (`web`). |
 | Doubao | API key from config/env → Volcengine Ark chat-completions probe (`api`). |
@@ -104,31 +111,36 @@ complete when the available scan window covers fewer days.
 | Abacus AI | Browser cookies → compute points + billing API (`web`). |
 | Mistral | Console billing, credit balance, and Vibe subscription usage via browser cookies (`web`). |
 | DeepSeek | API key from env or token accounts → balance endpoint (`api`). |
-| Fireworks | API key + account slug → 30-day spend from the billing summary API (`api`). |
+| [Fireworks](fireworks.md) | API key + account slug → 30-day spend from the billing summary API (`api`). |
 | DeepInfra | API key from env or token accounts → billing checklist + monthly usage endpoints (`api`). |
 | Moonshot | API key from config/env → balance endpoint (`api`). |
 | Codebuff | API token from config/env or `codebuff login` credentials → usage API (`api`). |
-| Crof | API key from config/env → credit balance + optional request quota API (`api`). |
-| Venice | API key from config/env → DIEM/USD balance API (`api`). |
+| Venice | Auto/API: API key from config/env → DIEM/USD balance (`api`). Explicit Web: Chrome or manual cookies → subscription credit details (`web`). |
 | Command Code | Web billing API via Command Code session cookies (`web`). |
 | ClinePass | API key from config/env → 5-hour, weekly, and monthly subscription usage limits (`api`). |
+| Qoder | Browser or manual cookies → big model credit usage (`web`). |
 | StepFun | Username/password login or manual Oasis token (`web`). |
 | AWS Bedrock | AWS credentials → Cost Explorer spend/budgets and optional CloudWatch Claude activity (`api`). |
 | Grok | `grok agent stdio` JSON-RPC `x.ai/billing` (`cli`) → grok.com billing gRPC-web via Chrome session cookies (`web`); local `~/.grok/sessions` signals as fallback. |
-| GroqCloud | API key → Prometheus metrics API for request/token/cache-hit rates (`api`). |
+| Groq | Browser session → console spend and usage (`web`); Enterprise API key → Prometheus metrics fallback (`api`). |
 | LLM Proxy | API key + base URL → `/v1/quota-stats` aggregate proxy usage (`api`). |
 | ClawRouter | API key + optional base URL → `/v1/usage` monthly budget, spend, and routed-provider usage (`api`). |
+| [LongCat](longcat.md) | Browser or manual cookies → token-pack quota and fuel-pack balances (`web`). |
+| sub2api | API key + base URL → gateway quota, subscription limits, wallet balance, and per-key usage (`api`). |
 | Wayfinder | Local gateway URL → `/healthz`, `/v1/savings`, `/router/models`, `/metrics` for health, routing split, savings, and decision latency (`api`). |
 | LiteLLM | API key + base URL → `/key/info`, then `/user/info` or `/team/info` budget usage (`api`). |
 | Deepgram | API key → project discovery and usage breakdown API (`api`). |
+| Poe | API key → current point balance and best-effort points history (`api`). |
 | Chutes | API key from config/env → subscription usage and quota API (`api`). |
 | Neuralwatt | API key from config/env → `/v1/quota` subscription kWh usage and prepaid balance (`api`). |
-| ZenMux | Management API key from config/env → five-hour and seven-day quota windows plus PAYG balance (`api`). |
+| Helmcode | Chrome or manual dashboard cookies → tenant-scoped model quotas, explicit premium rolling tiers, and Cloud-only prepaid balance (`web`). |
+| [ZenMux](zenmux.md) | Management API key from config/env → five-hour and seven-day quota windows plus PAYG balance (`api`). |
 | ai& | API key from config/env → 30-day organization spend summed from the request logs API (`api`). |
 | xAI | Management key + team ID from config/env → prepaid balance and 30-day daily spend from the Management API (`api`). |
 | Zed | Zed editor Keychain session → `cloud.zed.dev/client/users/me` for plan and quota data (`local`). |
 | Notion AI | Browser cookies → workspace resolution and the AI usage allowance API (`web`). |
-| IBM Bob | API key from config/env → profile and per-team Bobcoin budget APIs (`api`). |
+| [IBM Bob](ibm-bob.md) | API key from config/env → profile and per-team Bobcoin budget APIs (`api`). |
+| [Pi](pi.md) | Local Pi/OMP assistant transcripts → token history and API-rate cost estimates (`local`); no subscription quota. |
 
 ## Codex
 - App Auto: OAuth API first; falls back to CLI only when OAuth credentials are missing or auth/refresh is invalid.
@@ -248,7 +260,7 @@ complete when the available scan window covers fewer days.
   data retained as a compatibility fallback.
 - Optional workspace ID comes from `~/.codexbar/config.json` (`providers[].workspaceID`) or `CODEXBAR_OPENCODEGO_WORKSPACE_ID`.
 - Status: none yet.
-- Details: `docs/opencode.md`.
+- Details: `docs/opencodego.md`.
 
 ## Alibaba Coding Plan
 - Web mode uses Alibaba console RPC with form payload + `sec_token`.
@@ -416,7 +428,8 @@ provider-specific cookie validation, endpoints, login detection, and error trans
 
 ## OpenRouter
 - API token from the resolved CodexBar config (`providers[].apiKey`, default `~/.config/codexbar/config.json`) or `OPENROUTER_API_KEY` env var. Legacy config paths remain supported.
-- Reads regular-key quota from `/key` and attempts regular-key credits; a Management API key is required for 30-day Activity spend and is used only for Activity. Credits always use the selected account’s regular key.
+- Reads key quota from `/key` and attempts credits with the selected API key. On the official API, a primary key identified as a management key also enables account Activity; a separate Management API key takes precedence for Activity without replacing the selected account’s balance credential.
+- Shows account spend, tokens, requests, and model counts for the last 30 completed UTC days when Activity is available.
 - Shows daily, weekly, and monthly API-key spend when `/api/v1/key` returns those fields.
 - Override base URL with `OPENROUTER_API_URL` env var.
 - Status: `https://status.openrouter.ai` (link only, no auto-polling yet).
@@ -472,6 +485,7 @@ provider-specific cookie validation, endpoints, login detection, and error trans
 ## DeepSeek
 - API key via `DEEPSEEK_API_KEY` / `DEEPSEEK_KEY` env var or DeepSeek token accounts.
 - Shows total balance with paid vs. granted breakdown; USD preferred when multiple currencies present.
+- Optional Platform-session usage includes reported spend per model in its original billing currency and period.
 - Status: `https://status.deepseek.com` (link only, no auto-polling).
 - Details: `docs/deepseek.md`.
 
@@ -493,7 +507,8 @@ provider-specific cookie validation, endpoints, login detection, and error trans
 
 ## Venice
 - API key via `VENICE_API_KEY` / `VENICE_KEY` env var or Venice token accounts.
-- Shows current DIEM or USD balance; DIEM epoch allocation progress when available.
+- Auto and API show current DIEM or USD balance; DIEM epoch allocation progress when available.
+- Explicit Web source uses Chrome or manual Venice cookies for subscription credits, cycle spending, bank cap, and refill dates. Cookie Off prevents web requests; API-account identity stays separate from browser credit data.
 - Status: none yet.
 - Details: `docs/venice.md`.
 
@@ -504,13 +519,6 @@ provider-specific cookie validation, endpoints, login detection, and error trans
 - Override base URL with `CODEBUFF_API_URL`.
 - Status: none yet.
 - Details: `docs/codebuff.md`.
-
-## Crof
-- API key from `~/.codexbar/config.json`, `CROF_API_KEY`, or `CROFAI_API_KEY`.
-- Reads `credits` and optional `requests_plan` / `usable_requests` from `GET https://crof.ai/usage_api/`.
-- Prefers request quota plus a secondary dollar-balance row when quota fields are present; otherwise shows dollar credits as the primary window.
-- Status: none yet.
-- Details: `docs/crof.md`.
 
 ## Command Code
 - Browser session cookies from automatic import or manual `Cookie:` header.
@@ -529,6 +537,7 @@ JavaScriptCore is the macOS rollback engine. The committed `.js` is generated fr
 - Reads 5-hour, weekly, and monthly usage limits from `GET https://api.cline.bot/api/v1/users/me/plan/usage-limits`.
 - ClinePass subscription limits are distinct from Cline pay-as-you-go balance and usage.
 - Status: none yet.
+- Details: `docs/clinepass.md`.
 
 ## Qoder
 - Chrome session cookies from automatic import, or a manual `Cookie:` header/cURL capture on macOS or Linux.
@@ -546,15 +555,17 @@ JavaScriptCore is the macOS rollback engine. The committed `.js` is generated fr
 - Validated sessions are cached in the Keychain cookie cache and reused before any new browser import;
   the cache is evicted only on authentication failures.
 - Local fallback aggregates `~/.grok/sessions/**/signals.json` token counts when the RPC is unavailable.
+- Optional usage includes available limit-reset coupons and expiry dates from the same account that supplied billing; the app keeps weekly usage visible while fetching them.
 - Status: link only to `https://status.x.ai` (no auto-polling yet).
 - Details: `docs/grok.md`.
 
-## GroqCloud
-- API key from `~/.codexbar/config.json` or `GROQ_API_KEY`; base URL override via `GROQ_API_URL`.
-- Reads Enterprise Prometheus metrics for request, token, and cache-hit rates per minute.
-- Dashboard link: GroqCloud metrics console.
-- Status: `https://status.groq.com`.
-- Details: `docs/groqcloud.md`.
+## Groq
+- Auto prefers the console browser session for organization spend, token, and request history.
+- An Enterprise API key from config or `GROQ_API_KEY` enables the Prometheus metrics fallback.
+- Explicit `web` and `api` modes select the console and metrics sources respectively.
+- CLI name: `groqcloud`; aliases: `groq`, `groq-api`.
+- Status: `https://status.groq.com` (link only).
+- Details: `docs/groq.md`.
 
 ## LLM Proxy
 - API key + base URL from `~/.codexbar/config.json` (`enterpriseHost`), `LLM_PROXY_API_KEY`, or `LLM_PROXY_BASE_URL`.
@@ -664,3 +675,7 @@ Transient network failures keep the last successful usage for the same account a
 including multi-account menus and their widget data. The cached measurement time and source remain unchanged;
 failed refreshes do not add fresh utilization-history samples. Normal error reporting still applies after repeated
 failures. Authentication failures and invalidated account scopes do not restore cached usage from another scope.
+
+## Helmcode
+
+[Helmcode](helmcode.md) reads model quotas from a Chrome dashboard session for Helmcode Cloud or NaN Builders. Cloud is preferred when both tenants are signed in; Manual cookie source uses the selected tenant. Prepaid balance is Cloud-only.

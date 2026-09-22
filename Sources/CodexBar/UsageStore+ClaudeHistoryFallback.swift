@@ -2,6 +2,23 @@ import CodexBarCore
 import Foundation
 
 extension UsageStore {
+    nonisolated static func isPreservableNetworkTransportError(_ error: Error) -> Bool {
+        let nsError = self.underlyingProviderTransportError(error) as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        switch nsError.code {
+        case NSURLErrorTimedOut,
+             NSURLErrorCancelled,
+             NSURLErrorNetworkConnectionLost,
+             NSURLErrorNotConnectedToInternet,
+             NSURLErrorCannotFindHost,
+             NSURLErrorCannotConnectToHost,
+             NSURLErrorDNSLookupFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
     nonisolated static func isClaudeConsumerAutoPipeline(
         provider: UsageProvider,
         context: ProviderFetchContext,

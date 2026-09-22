@@ -2,6 +2,10 @@ import CodexBarCore
 import Foundation
 
 extension SettingsStore {
+    var grokUsesHomeAccounts: Bool {
+        !self.grokManagedAccounts.isEmpty || self.grokVisibleAccountProjection.visibleAccounts.count > 1
+    }
+
     var grokUsageDataSource: ProviderSourceMode {
         get { self.configSnapshot.providerConfig(for: .grok)?.source ?? .auto }
         set {

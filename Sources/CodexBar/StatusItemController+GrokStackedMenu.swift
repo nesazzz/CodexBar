@@ -2,8 +2,8 @@ import AppKit
 import CodexBarCore
 
 enum GrokAccountMenuSupport {
-    static func suppressesTokenAccounts(provider: UsageProvider, visibleAccountCount: Int) -> Bool {
-        provider == .grok && visibleAccountCount > 1
+    static func suppressesTokenAccounts(provider: UsageProvider, usesHomeAccounts: Bool) -> Bool {
+        provider == .grok && usesHomeAccounts
     }
 }
 
@@ -11,10 +11,12 @@ extension StatusItemController {
     func grokAccountMenuDisplay(for provider: UsageProvider) -> GrokAccountMenuDisplay? {
         guard provider == .grok else { return nil }
         let projection = self.settings.grokVisibleAccountProjection
-        guard projection.visibleAccounts.count > 1 else { return nil }
+        guard self.settings.grokUsesHomeAccounts else { return nil }
         let showAll = self.settings.multiAccountMenuLayout == .stacked
         let snapshotsByID = Dictionary(uniqueKeysWithValues: self.store.grokAccountSnapshots.map { ($0.id, $0) })
-        let snapshots = showAll ? projection.visibleAccounts.compactMap { snapshotsByID[$0.id] } : []
+        let snapshots = showAll ? projection.visibleAccounts.compactMap { account in
+            snapshotsByID[account.id].flatMap { $0.matches(account) ? $0 : nil }
+        } : []
         return GrokAccountMenuDisplay(
             accounts: projection.visibleAccounts,
             snapshots: snapshots,

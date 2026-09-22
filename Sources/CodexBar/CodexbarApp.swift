@@ -34,6 +34,7 @@ enum CodexBarEntryPoint {
         guard CodexBarLaunchMode.resolve(arguments: CommandLine.arguments) == .application else {
             return
         }
+        TerminalLauncher().cleanUpAbandonedConfigs()
         CodexBarApp.main()
     }
 }
@@ -195,7 +196,7 @@ final class DisabledUpdaterController: UpdaterProviding {
     static func homebrew() -> DisabledUpdaterController {
         let command = ManualUpdateCommand.homebrew
         return DisabledUpdaterController(
-            unavailableReason: "Updates managed by Homebrew. Run: \(command.command)",
+            unavailableReason: L("Managed by Homebrew"),
             manualUpdateCommand: command)
     }
 

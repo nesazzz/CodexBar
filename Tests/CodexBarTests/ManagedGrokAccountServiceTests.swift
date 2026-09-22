@@ -193,6 +193,40 @@ private final class InMemoryManagedGrokAccountStore: ManagedGrokAccountStoring, 
 
 struct GrokAccountMenuDisplayTests {
     @Test
+    func `single home account hides token controls without showing a redundant switcher`() {
+        let display = GrokAccountMenuDisplay(
+            accounts: [Self.account("one@example.com")],
+            snapshots: [],
+            activeVisibleAccountID: "one@example.com",
+            layout: .segmented)
+        #expect(!display.showSwitcher)
+        #expect(GrokAccountMenuSupport.suppressesTokenAccounts(provider: .grok, usesHomeAccounts: true))
+        #expect(!GrokAccountMenuSupport.suppressesTokenAccounts(provider: .grok, usesHomeAccounts: false))
+        #expect(!GrokAccountMenuSupport.suppressesTokenAccounts(provider: .codex, usesHomeAccounts: true))
+    }
+
+    @Test(arguments: ["live", "managed-account"])
+    func `cache ownership rejects reassigned identity or home with unchanged ID`(accountID: String) {
+        func account(email: String, home: String) -> GrokVisibleAccount {
+            GrokVisibleAccount(
+                id: accountID,
+                email: email,
+                storedAccountID: nil,
+                selectionSource: .liveSystem,
+                managedHomePath: home,
+                isActive: true,
+                isLive: true,
+                canReauthenticate: true,
+                canRemove: false)
+        }
+        let original = account(email: "old@example.com", home: "/tmp/grok-original")
+        let cached = GrokAccountUsageSnapshot(account: original, snapshot: nil, error: nil, sourceLabel: nil)
+        #expect(cached.matches(original))
+        #expect(!cached.matches(account(email: "new@example.com", home: "/tmp/grok-original")))
+        #expect(!cached.matches(account(email: "old@example.com", home: "/tmp/grok-replaced")))
+    }
+
+    @Test
     func `segmented layout shows a switcher instead of stacked cards`() {
         let display = GrokAccountMenuDisplay(
             accounts: [Self.account("one@example.com"), Self.account("two@example.com")],
@@ -329,6 +363,27 @@ struct GrokManagedAccountRoutingTests {
         #expect(pastedContext.grokExpectedAccountEmail == nil)
         #expect(pastedContext.env["GROK_HOME"] != home.path)
         #expect(pastedContext.env[GrokSettingsReader.oauthTokenEnvironmentKey] == pastedAccount.token)
+
+        let priorSnapshots = usageStore.grokAccountSnapshots
+        try store.storeAccounts(ManagedGrokAccountSet(version: 1, accounts: [
+            ManagedGrokAccount(
+                id: accountID,
+                email: "reassigned@example.com",
+                managedHomePath: home.path,
+                createdAt: 1,
+                updatedAt: 2,
+                lastAuthenticatedAt: 2),
+        ]))
+        let activeID = try #require(settings.grokVisibleAccountProjection.activeVisibleAccountID)
+        usageStore.activateCachedGrokAccountSnapshot(visibleAccountID: activeID)
+        #expect(usageStore.snapshot(for: .grok) == nil)
+        #expect(usageStore.lastKnownResetSnapshots[.grok] == nil)
+        usageStore.grokAccountSnapshots = priorSnapshots
+        await usageStore.refreshProvider(.grok, allowDisabled: true)
+        #expect(usageStore.snapshot(for: .grok) == nil)
+        let reassigned = try #require(usageStore.grokAccountSnapshots.first { $0.id == activeID })
+        #expect(reassigned.snapshot == nil)
+        #expect(reassigned.error != nil)
     }
 
     @Test
@@ -385,6 +440,9 @@ private struct GrokManagedOwnershipTestStrategy: ProviderFetchStrategy {
         #expect(context.env[GrokSettingsReader.oauthTokenEnvironmentKey] == nil)
         let email = try #require(context.grokExpectedAccountEmail)
         #expect(!email.isEmpty)
+        if email == "reassigned@example.com" {
+            throw GrokWebBillingError.invalidResponse
+        }
         return ProviderFetchResult(
             usage: UsageSnapshot(primary: nil, secondary: nil, updatedAt: Date()).withIdentity(
                 ProviderIdentitySnapshot(

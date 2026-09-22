@@ -6,6 +6,85 @@ import Testing
 
 struct DevinSessionImporterTests {
     @Test(arguments: [false, true])
+    func `an unreadable profile only fails import when no other session is available`(_ hasSession: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("devin-storage-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Self.writeLog(hasSession ? [
+            StorageEntry(key: "auth1_session", value: #"{"token":"auth1_synthetic-session-fixture"}"#),
+        ] : [], to: directory)
+        let candidates = [
+            ChromiumLocalStorageDiscovery.Candidate(
+                label: "Missing profile",
+                url: directory.appendingPathComponent("gone")),
+            ChromiumLocalStorageDiscovery.Candidate(label: "Readable profile", url: directory),
+        ]
+
+        do {
+            let sessions = try DevinSessionImporter.importSessions(
+                browserDetection: BrowserDetection(homeDirectory: directory.path, cacheTTL: 0),
+                candidates: candidates)
+            #expect(hasSession)
+            #expect(sessions.map(\.sourceLabel) == ["Readable profile"])
+        } catch DevinUsageError.browserStorageUnreadable {
+            #expect(!hasSession)
+        }
+    }
+
+    @Test
+    func `no discovered profiles is not a storage read failure`() throws {
+        let sessions = try DevinSessionImporter.importSessions(
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            candidates: [])
+
+        #expect(sessions.isEmpty)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func `token extraction preserves auth1 then auth0 then fallback priority`(_ auth1: Bool, _ auth0: Bool) {
+        let storage = [
+            "auth1_session": auth1 ? #"{"token":"auth1_synthetic-session-fixture"}"# : "{}",
+            "@@auth0spajs@@::client": auth0 ? #"{"access_token":"eyJsynthetic.auth0-token.signature"}"# : "{}",
+            "fallback": #"{"accessToken":"eyJsynthetic.fallback-token.signature"}"#,
+        ]
+        let expected = auth1 ? "auth1_synthetic-session-fixture" :
+            (auth0 ? "eyJsynthetic.auth0-token.signature" : "eyJsynthetic.fallback-token.signature")
+
+        #expect(DevinSessionImporter.accessToken(from: storage) == expected)
+    }
+
+    @Test(arguments: [false, true])
+    func `readable empty storage is an empty session`(_ hasHiddenFile: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("devin-storage-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Self.writeLog([], to: directory)
+        if hasHiddenFile {
+            let hidden = directory.appendingPathComponent(".ignored.log")
+            try Data().write(to: hidden)
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: hidden.path)
+        }
+
+        #expect(try DevinSessionImporter.readLocalStorage(from: directory).isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func `unreadable storage is not reported as an empty session`(_ unreadableFile: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("devin-storage-\(UUID())")
+        try Self.writeLog([
+            StorageEntry(key: "auth1_session", value: #"{"token":"auth1_synthetic-session-fixture"}"#),
+        ], to: directory)
+        let blocked = unreadableFile ? directory.appendingPathComponent("000003.log") : directory
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: blocked.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: blocked.path)
+
+        #expect(throws: (any Error).self) {
+            _ = try DevinSessionImporter.readLocalStorage(from: directory)
+        }
+    }
+
+    @Test(arguments: [false, true])
     func `browser import ignores authentication from other origins`(_ hasDevinSession: Bool) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("devin-storage-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -30,7 +109,7 @@ struct DevinSessionImporterTests {
         }
         try Self.writeLog(entries, to: directory)
 
-        let session = DevinSessionImporter.session(
+        let session = try DevinSessionImporter.session(
             from: DevinSessionImporter.readLocalStorage(from: directory),
             sourceLabel: "Synthetic Chrome")
 
@@ -103,7 +182,7 @@ struct DevinSessionImporterTests {
             StorageEntry(key: "last-internal-org-for-external-org-v1-example", value: #""org_example12345""#),
         ], to: directory)
 
-        let session = DevinSessionImporter.session(
+        let session = try DevinSessionImporter.session(
             from: DevinSessionImporter.readLocalStorage(from: directory),
             sourceLabel: "Synthetic Chrome")
 
@@ -148,6 +227,66 @@ struct DevinSessionImporterTests {
 
         #expect(result.organization == "org/selected")
         #expect(result.internalOrganizationID == "org_selected123")
+    }
+
+    @Test(arguments: ["records", "siblings", "array", "key-and-child"], [false, true])
+    func `organization fields from unrelated records never form a pair`(_ shape: String, _ explicit: Bool) {
+        let storage: [String: String] = switch shape {
+        case "records":
+            [
+                "post-auth-v3-org_name-selected": "{}",
+                "feature-flags-cache:org_unrelated123": "{}",
+            ]
+        case "siblings":
+            ["member-info-v1": #"{"first":{"org_name":"selected"},"second":{"org_id":"org_unrelated123"}}"#]
+        case "array":
+            ["member-info-v1": #"[{"org_name":"selected"},{"org_id":"org_unrelated123"}]"#]
+        default:
+            ["post-auth-v3-org_name-selected": #"{"value":{"internalOrgId":"org_unrelated123"}}"#]
+        }
+
+        let result = DevinSessionImporter.organizationInfo(
+            from: storage,
+            organizationOverride: explicit ? "selected" : nil)
+
+        #expect(result.organization == "org/selected")
+        #expect(result.internalOrganizationID == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func `complete matching metadata wins over an incomplete candidate`(_ explicit: Bool) {
+        let result = DevinSessionImporter.organizationInfo(
+            from: [
+                "a-post-auth-v3-org_name-selected": "{}",
+                "member-info-v1": #"{"value":{"org_name":"selected","org_id":"org_selected123"}}"#,
+                "feature-flags-cache:org_unrelated123": "{}",
+            ],
+            organizationOverride: explicit ? "selected" : nil)
+
+        #expect(result.organization == "org/selected")
+        #expect(result.internalOrganizationID == "org_selected123")
+    }
+
+    @Test
+    func `post auth key slug retains its direct organization ID`() {
+        let result = DevinSessionImporter.organizationInfo(
+            from: ["post-auth-v3-org_name-selected": #"{"internalOrgId":"org_selected123"}"#],
+            organizationOverride: nil)
+
+        #expect(result.organization == "org/selected")
+        #expect(result.internalOrganizationID == "org_selected123")
+    }
+
+    @Test(arguments: [false, true])
+    func `conflicting key and JSON organizations stay separate`(_ explicit: Bool) {
+        let result = DevinSessionImporter.organizationInfo(
+            from: [
+                "post-auth-v3-org_name-selected": #"{"orgName":"other","internalOrgId":"org_other12345"}"#,
+            ],
+            organizationOverride: explicit ? "selected" : nil)
+
+        #expect(result.organization == (explicit ? "org/selected" : "org/other"))
+        #expect(result.internalOrganizationID == (explicit ? nil : "org_other12345"))
     }
 
     private struct StorageEntry {

@@ -57,24 +57,28 @@ extension UsageStore {
         let generation: UInt64
     }
 
-    private static func warningAccountDiscriminator(
+    private func warningAccountDiscriminators(
         provider: UsageProvider,
-        tokenAccount: ProviderTokenAccount?,
         result: ProviderFetchResult,
-        context: ProviderRefreshOutcomeContext) -> String?
+        context: ProviderRefreshOutcomeContext) -> (quota: String?, source: String?, requiresKnownAccount: Bool)
     {
-        if let tokenAccount {
-            return self.warningTokenAccountDiscriminator(tokenAccount)
+        // Provider-specific by design: warning scopes follow Codex owners and verified Claude account bindings.
+        let requiresKnownAccount = provider == .claude && [.oauth, .cli].contains(result.strategyKind)
+        if let tokenAccount = context.tokenAccount {
+            let key = Self.warningTokenAccountDiscriminator(tokenAccount)
+            return (key, key, requiresKnownAccount)
         }
-        // Provider-specific by design: Codex owner keys and Claude OAuth observations scope warning deduplication.
         if provider == .codex {
-            return context.codexSessionQuotaOwnerKey?.rawValue
+            let key = context.codexSessionQuotaOwnerKey?.rawValue
+            return (key, key, requiresKnownAccount)
         }
-        guard provider == .claude else { return nil }
-        return self.warningClaudeAccountDiscriminator(
+        guard provider == .claude else { return (nil, nil, requiresKnownAccount) }
+        let scopes = self.warningClaudeAccountDiscriminators(
             strategyKind: result.strategyKind,
-            observation: context.claudeOAuthActiveAccountObservation,
+            observation: result.strategyKind == .cli || result.claudeOAuthCredentialOwner == .claudeCLI
+                ? context.claudeOAuthActiveAccountObservation : .changed,
             oauthHistoryOwnerIdentifier: result.claudeOAuthHistoryOwnerIdentifier)
+        return (scopes.quota, scopes.source, requiresKnownAccount)
     }
 
     static func commandCodeSnapshotResolvingDepletionOnEnrichmentFailure(
@@ -341,7 +345,7 @@ extension UsageStore {
             await self.refreshCodexVisibleAccountsForMenu(generation: generation)
             return nil
         } else if provider == .codex {
-            self.codexAccountSnapshots = []
+            self.reconcileCodexWidgetAccountSnapshots()
         }
 
         if provider == .grok, self.shouldFetchAllGrokVisibleAccounts() {
@@ -720,15 +724,16 @@ extension UsageStore {
             let allowanceCurrent = self.resolvingCurrentCopilotAllowance(in: accountScoped, provider: provider)
             let backfilled = self.preparePublishedSnapshot(
                 allowanceCurrent, provider: provider, resetBackfillSource: resetBackfillSource, context: context)
-            let warningAccountDiscriminator = Self.warningAccountDiscriminator(
+            let warningAccounts = self.warningAccountDiscriminators(
                 provider: provider,
-                tokenAccount: currentTokenAccount,
                 result: result,
                 context: context)
             self.handleQuotaWarningTransitions(
                 provider: provider,
                 snapshot: backfilled,
-                accountDiscriminator: warningAccountDiscriminator)
+                accountDiscriminator: warningAccounts.quota,
+                hookAccountDiscriminator: warningAccounts.source,
+                requiresKnownAccount: warningAccounts.requiresKnownAccount)
             self.handleSessionQuotaTransition(
                 provider: provider,
                 snapshot: backfilled,
@@ -736,7 +741,8 @@ extension UsageStore {
             self.handlePredictivePaceWarningTransitions(
                 provider: provider,
                 snapshot: backfilled,
-                accountDiscriminatorOverride: provider == .claude ? warningAccountDiscriminator : nil)
+                accountDiscriminatorOverride: warningAccounts.source,
+                requiresKnownAccount: warningAccounts.requiresKnownAccount)
             if provider == .codex {
                 self.handleCodexResetCreditNotifications(snapshot: backfilled)
             }
@@ -780,6 +786,7 @@ extension UsageStore {
                 backfilled: backfilled,
                 result: result,
                 context: context)
+            self.emitUsageUpdatedHook(provider: provider, snapshot: backfilled, rateKey: warningAccounts.source)
             return backfilled
         }
         guard let backfilled else { return }
@@ -853,7 +860,17 @@ extension UsageStore {
         self.bindCodexFailurePublicationOwner(
             provider: provider,
             expectedGuard: context.codexExpectedGuard)
+        if provider == .codex {
+            self.reconcileCodexWidgetAccountSnapshots(after: error)
+        }
         self.lastFetchAttempts[provider.instanceID] = attempts
+        if !Self.shouldPreservePriorSnapshot(
+            after: error,
+            hadPriorData: true,
+            priorSnapshot: self.snapshots[provider.instanceID] ?? self.lastKnownResetSnapshots[provider.instanceID])
+        {
+            self.invalidateGenericWidgetUsage(for: provider)
+        }
         self.recordStartupConnectivityRetryableFailure(error)
         await self.handleProviderFetchFailure(
             provider: provider,
@@ -1326,7 +1343,8 @@ extension UsageStore {
     }
 
     private func clearClaudeCredentialDerivedStateForCredentialSwap() {
-        // Provider-specific by design: retire Claude projections but preserve known accounts' warning episodes.
+        // Provider-specific by design: retire Claude projections but preserve scoped warning episodes, including
+        // unresolved accounts.
         self.widgetUsagePreservationBlockedProviders.insert(.claude)
         self.snapshots.removeValue(forKey: .claude)
         self.lastKnownResetSnapshots.removeValue(forKey: .claude)
@@ -1536,23 +1554,6 @@ extension UsageStore {
         }
     }
 
-    nonisolated static func isPreservableNetworkTransportError(_ error: Error) -> Bool {
-        let nsError = self.underlyingProviderTransportError(error) as NSError
-        guard nsError.domain == NSURLErrorDomain else { return false }
-        switch nsError.code {
-        case NSURLErrorTimedOut,
-             NSURLErrorCancelled,
-             NSURLErrorNetworkConnectionLost,
-             NSURLErrorNotConnectedToInternet,
-             NSURLErrorCannotFindHost,
-             NSURLErrorCannotConnectToHost,
-             NSURLErrorDNSLookupFailed:
-            return true
-        default:
-            return false
-        }
-    }
-
     static func startupConnectivityRetryDelay(forAttempt attempt: Int) -> TimeInterval? {
         let delays: [TimeInterval] = [15, 45, 120, 300]
         guard attempt >= 1, attempt <= delays.count else { return nil }
@@ -1608,28 +1609,5 @@ extension UsageStore {
             ClaudeWebAPIFetcher.FetchError.unauthorized.localizedDescription,
             ClaudeWebAPIFetcher.FetchError.cloudflareChallenge.localizedDescription,
         ].contains(error.localizedDescription)
-    }
-
-    nonisolated static func isPermissionPromptWaiting(_ error: Error) -> Bool {
-        let message = error.localizedDescription.lowercased()
-        return (message.contains("prompt") && message.contains("waiting")) ||
-            message.contains("permission prompt") ||
-            message.contains("folder trust prompt")
-    }
-
-    private func postPermissionPromptNotificationIfNeeded(provider: UsageProvider, error: Error) {
-        let now = Date()
-        if let last = self.lastPermissionPromptNotificationAt[provider.instanceID],
-           now.timeIntervalSince(last) < 10 * 60
-        {
-            return
-        }
-        self.lastPermissionPromptNotificationAt[provider.instanceID] = now
-        let providerName = ProviderDescriptorRegistry.descriptor(for: provider).metadata.displayName
-        AppNotifications.shared.post(
-            idPrefix: "permission-prompt-\(provider.rawValue)",
-            title: L("%@ is waiting for permission", providerName),
-            body: error.localizedDescription,
-            soundEnabled: false)
     }
 }

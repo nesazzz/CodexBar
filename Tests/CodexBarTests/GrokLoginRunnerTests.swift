@@ -38,6 +38,7 @@ struct GrokLoginRunnerTests {
             timeout: 5,
             environment: [
                 "GROK_CLI_PATH": grokCLI.path,
+                "GROK_HOME": "/tmp/unrelated-grok-home",
                 "GROK_OAUTH_TOKEN": "should-not-leak",
                 "PATH": binDir.path,
             ],

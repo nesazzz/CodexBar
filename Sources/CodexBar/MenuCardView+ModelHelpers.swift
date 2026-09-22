@@ -74,12 +74,6 @@ extension UsageMenuCardView.Model {
             presentation.detailLeft = detail
         case .detail:
             presentation.detailText = detail
-        case .detailBySecondaryPresence:
-            if input.snapshot?.secondary != nil {
-                presentation.detailRight = detail
-            } else {
-                presentation.detailText = detail
-            }
         case .standard:
             break
         }
@@ -126,9 +120,6 @@ extension UsageMenuCardView.Model {
             presentation.resetText = primary.resetDescription
         }
         if policy.hidesPrimaryResetWithoutDate, primary.resetsAt == nil {
-            presentation.resetText = nil
-        }
-        if policy.hidesPrimaryResetWithoutSecondary, input.snapshot?.secondary == nil {
             presentation.resetText = nil
         }
     }
@@ -365,6 +356,10 @@ extension UsageMenuCardView.Model {
             self.placeholder != nil
     }
 
+    func showsOverviewSupplementalContent(compact: Bool) -> Bool {
+        !compact || self.metrics.isEmpty
+    }
+
     var creditsOnlyInlineUsageDashboard: Bool {
         self.creditsText != nil &&
             self.inlineUsageDashboard != nil &&
@@ -481,12 +476,16 @@ extension UsageMenuCardView.Model {
             current.valueStyle == candidate.valueStyle &&
                 current.kpis.count == candidate.kpis.count &&
                 current.points.count == candidate.points.count &&
+                current.quotaWindows.count == candidate.quotaWindows.count &&
                 current.detailLines.count == candidate.detailLines.count &&
                 zip(current.kpis, candidate.kpis).allSatisfy {
                     $0.title == $1.title && $0.emphasis == $1.emphasis
                 } &&
                 zip(current.points, candidate.points).allSatisfy {
                     $0.id == $1.id && $0.label == $1.label
+                } &&
+                zip(current.quotaWindows, candidate.quotaWindows).allSatisfy {
+                    $0.title == $1.title && $0.range == $1.range && $0.note == $1.note
                 }
         default:
             false
@@ -548,8 +547,6 @@ extension UsageMenuCardView.Model {
         // Legacy request-based Cursor plans track a request quota, not the token-based "Total" pool.
         let primaryLabel = if input.provider == .cursor, snapshot.detailRow(label: "Request quota") != nil {
             "Requests"
-        } else if input.provider == .crof {
-            CrofProviderDescriptor.primaryLabel(snapshot: snapshot)
         } else if input.provider == .grok {
             GrokProviderDescriptor.displayLabel(window: snapshot.primary, now: input.now) ?? input.metadata.sessionLabel
         } else if input.provider == .doubao {

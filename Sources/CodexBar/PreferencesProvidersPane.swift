@@ -67,7 +67,8 @@ struct ProvidersPane: View {
             model: unfilteredModel.applyingUsageItemVisibility(
                 hiddenItemIDs: self.settings.hiddenUsageItemIDs(for: self.provider)),
             usageItems: unfilteredModel.usageItemDescriptors(
-                includingHidden: self.settings.hiddenUsageItemIDs(for: self.provider)),
+                includingHidden: self.settings.hiddenUsageItemIDs(for: self.provider),
+                hidePersonalInfo: self.settings.hidePersonalInfo),
             openAIWebDiagnostic: self.openAIWebDiagnostic(for: self.provider),
             settingsPickers: self.extraSettingsPickers(for: self.provider),
             settingsToggles: self.extraSettingsToggles(for: self.provider),
@@ -440,6 +441,7 @@ struct ProvidersPane: View {
         self.isAuthenticatingLiveGrokAccount = true
         defer { self.isAuthenticatingLiveGrokAccount = false }
         let result = await GrokLoginRunner.run(
+            homePath: self.settings.grokHomePath(forActiveSource: .liveSystem),
             timeout: GrokLoginRunner.defaultTimeout,
             onProgress: Self.grokLoginProgressHandler)
         if let info = GrokLoginAlertPresentation.alertInfo(for: result) {

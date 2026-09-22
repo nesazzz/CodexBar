@@ -92,10 +92,12 @@ extension StatusItemController {
         guard self.reusableMergedSwitcherContent(
             for: selection,
             in: menu,
-            menuWidth: menuWidth,
-            codexAccountDisplay: codexAccountDisplay,
-            tokenAccountDisplay: tokenAccountDisplay,
-            grokAccountDisplay: grokAccountDisplay) == nil
+            context: .init(
+                menuWidth: menuWidth,
+                codexAccountDisplay: codexAccountDisplay,
+                tokenAccountDisplay: tokenAccountDisplay,
+                grokAccountDisplay: grokAccountDisplay,
+                contentVersion: nil)) == nil
         else { return }
 
         // Building sibling content updates the "last rendered display" trackers used by

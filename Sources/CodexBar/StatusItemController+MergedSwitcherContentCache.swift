@@ -11,18 +11,15 @@ struct CachedMergedSwitcherMenuContent {
 
     func matches(
         requiredMenuContentVersion: Int,
-        menuWidth: CGFloat,
-        codexAccountDisplay: CodexAccountMenuDisplay?,
-        tokenAccountDisplay: TokenAccountMenuDisplay?,
-        grokAccountDisplay: GrokAccountMenuDisplay?,
+        context: MergedSwitcherContentCacheContext,
         localizationSignature: String)
         -> Bool
     {
         self.requiredMenuContentVersion >= requiredMenuContentVersion &&
-            abs(self.menuWidth - menuWidth) <= 0.5 &&
-            self.codexAccountDisplay == codexAccountDisplay &&
-            self.tokenAccountDisplay == tokenAccountDisplay &&
-            self.grokAccountDisplay == grokAccountDisplay &&
+            abs(self.menuWidth - context.menuWidth) <= 0.5 &&
+            self.codexAccountDisplay == context.codexAccountDisplay &&
+            self.tokenAccountDisplay == context.tokenAccountDisplay &&
+            self.grokAccountDisplay == context.grokAccountDisplay &&
             self.localizationSignature == localizationSignature
     }
 }
@@ -99,20 +96,14 @@ extension StatusItemController {
     func reusableMergedSwitcherContent(
         for selection: ProviderSwitcherSelection,
         in menu: NSMenu,
-        menuWidth: CGFloat,
-        codexAccountDisplay: CodexAccountMenuDisplay?,
-        tokenAccountDisplay: TokenAccountMenuDisplay?,
-        grokAccountDisplay: GrokAccountMenuDisplay?)
+        context: MergedSwitcherContentCacheContext)
         -> [NSMenuItem]?
     {
         let key = ObjectIdentifier(menu)
         guard let entry = self.mergedSwitcherContentCaches[key]?[selection] else { return nil }
         guard entry.matches(
             requiredMenuContentVersion: self.menuSession.latestRequiredRebuildVersion,
-            menuWidth: menuWidth,
-            codexAccountDisplay: codexAccountDisplay,
-            tokenAccountDisplay: tokenAccountDisplay,
-            grokAccountDisplay: grokAccountDisplay,
+            context: context,
             localizationSignature: self.menuLocalizationSignature())
         else {
             self.mergedSwitcherContentCaches[key]?.removeValue(forKey: selection)
@@ -124,24 +115,18 @@ extension StatusItemController {
     func addCachedMergedSwitcherContent(
         for selection: ProviderSwitcherSelection,
         to menu: NSMenu,
-        menuWidth: CGFloat,
-        codexAccountDisplay: CodexAccountMenuDisplay?,
-        tokenAccountDisplay: TokenAccountMenuDisplay?,
-        grokAccountDisplay: GrokAccountMenuDisplay?)
+        context: MergedSwitcherContentCacheContext)
         -> Bool
     {
         guard let items = self.reusableMergedSwitcherContent(
             for: selection,
             in: menu,
-            menuWidth: menuWidth,
-            codexAccountDisplay: codexAccountDisplay,
-            tokenAccountDisplay: tokenAccountDisplay,
-            grokAccountDisplay: grokAccountDisplay)
+            context: context)
         else { return false }
 
-        self.lastCodexAccountMenuDisplay = codexAccountDisplay
-        self.lastTokenAccountMenuDisplay = tokenAccountDisplay
-        self.lastGrokAccountMenuDisplay = grokAccountDisplay
+        self.lastCodexAccountMenuDisplay = context.codexAccountDisplay
+        self.lastTokenAccountMenuDisplay = context.tokenAccountDisplay
+        self.lastGrokAccountMenuDisplay = context.grokAccountDisplay
         for item in items {
             menu.addItem(item)
         }

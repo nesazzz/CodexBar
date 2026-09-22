@@ -8,6 +8,13 @@ struct GrokAccountUsageSnapshot: Identifiable {
     let error: String?
     let sourceLabel: String?
 
+    func matches(_ account: GrokVisibleAccount) -> Bool {
+        self.account.id == account.id &&
+            self.account.email == account.email &&
+            self.account.managedHomePath == account.managedHomePath &&
+            self.account.selectionSource == account.selectionSource
+    }
+
     init(
         account: GrokVisibleAccount,
         snapshot: UsageSnapshot?,
@@ -33,7 +40,7 @@ struct GrokAccountMenuDisplay: Equatable {
     }
 
     var showSwitcher: Bool {
-        self.layout == .segmented
+        self.layout == .segmented && self.accounts.count > 1
     }
 
     static func == (lhs: GrokAccountMenuDisplay, rhs: GrokAccountMenuDisplay) -> Bool {

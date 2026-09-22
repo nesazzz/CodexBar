@@ -522,10 +522,12 @@ struct StatusMenuSwitcherRefreshTests {
         #expect(controller.addCachedMergedSwitcherContent(
             for: .provider(.codex),
             to: menu,
-            menuWidth: cache.menuWidth,
-            codexAccountDisplay: cache.codexAccountDisplay,
-            tokenAccountDisplay: cache.tokenAccountDisplay,
-            grokAccountDisplay: cache.grokAccountDisplay))
+            context: .init(
+                menuWidth: cache.menuWidth,
+                codexAccountDisplay: cache.codexAccountDisplay,
+                tokenAccountDisplay: cache.tokenAccountDisplay,
+                grokAccountDisplay: cache.grokAccountDisplay,
+                contentVersion: nil)))
         #expect(refreshItem.menu === menu)
         #expect(refreshItem.isEnabled)
     }

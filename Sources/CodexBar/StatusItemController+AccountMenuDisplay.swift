@@ -42,7 +42,7 @@ extension StatusItemController {
     func tokenAccountMenuDisplay(for provider: UsageProvider) -> TokenAccountMenuDisplay? {
         if GrokAccountMenuSupport.suppressesTokenAccounts(
             provider: provider,
-            visibleAccountCount: self.settings.grokVisibleAccountProjection.visibleAccounts.count)
+            usesHomeAccounts: self.settings.grokUsesHomeAccounts)
         {
             return nil
         }

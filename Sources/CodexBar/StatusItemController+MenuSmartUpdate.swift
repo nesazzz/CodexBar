@@ -3,6 +3,34 @@ import CodexBarCore
 import SwiftUI
 
 extension StatusItemController {
+    func reusableFixedWidthRows(in menu: NSMenu) -> [NSMenuItem] {
+        guard !menu.items.isEmpty else { return [] }
+
+        var reusableRows: [NSMenuItem] = []
+        var index = self.providerSwitcherContentStartIndex(in: menu)
+        if index > 0 {
+            reusableRows.append(menu.items[0])
+        }
+        if menu.items.count > index,
+           menu.items[index].view is CodexAccountSwitcherView
+        {
+            reusableRows.append(menu.items[index])
+            index += 2
+        }
+        if menu.items.count > index,
+           menu.items[index].view is TokenAccountSwitcherView
+        {
+            reusableRows.append(menu.items[index])
+            index += 2
+        }
+        if menu.items.count > index,
+           menu.items[index].view is GrokAccountSwitcherView
+        {
+            reusableRows.append(menu.items[index])
+        }
+        return reusableRows
+    }
+
     /// Smart update: rebuild everything below the provider switcher while keeping the switcher view intact.
     struct MenuUpdateContext {
         let provider: UsageProvider?
@@ -37,10 +65,12 @@ extension StatusItemController {
                let cachedItems = self.reusableMergedSwitcherContent(
                    for: context.switcherSelection,
                    in: menu,
-                   menuWidth: context.menuWidth,
-                   codexAccountDisplay: context.codexAccountDisplay,
-                   tokenAccountDisplay: context.tokenAccountDisplay,
-                   grokAccountDisplay: context.grokAccountDisplay)
+                   context: .init(
+                       menuWidth: context.menuWidth,
+                       codexAccountDisplay: context.codexAccountDisplay,
+                       tokenAccountDisplay: context.tokenAccountDisplay,
+                       grokAccountDisplay: context.grokAccountDisplay,
+                       contentVersion: nil))
             {
                 MenuSwitchFlickerProbe.debugLog("cached-swap begin \(context.switcherSelection)")
                 defer { MenuSwitchFlickerProbe.debugLog("cached-swap end") }

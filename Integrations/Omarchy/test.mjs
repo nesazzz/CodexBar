@@ -27,6 +27,26 @@ test('malformed and unrecognized responses cannot replace the last good snapshot
     for (const value of ['', '[]', '{}', 'null', '[null]', 'oops'])
         assert.throws(() => model.rows(value));
 });
+test('durationless quota uses provider labels without inventing a weekly cadence', () => {
+    const input = {provider: 'v0', rateWindowLabels: {secondary: ' Rate limit '},
+        usage: {secondary: {usedPercent: 20}}};
+    const row = model.rows(JSON.stringify(input))[0].windows[0];
+    assert.equal(row.key, 'secondary');
+    assert.equal(row.label, 'Rate limit');
+    assert.equal(row.remaining, 80);
+    input.usage.secondary.windowMinutes = 300;
+    assert.equal(model.rows(JSON.stringify(input))[0].windows[0].label, '5 hour');
+});
+test('provider labels preserve fallback and IPC identity privacy', () => {
+    for (const label of [null, '', '  ', 42, {}, []]) {
+        const input = {provider: 'v0', rateWindowLabels: {secondary: label},
+            usage: {secondary: {usedPercent: 20}}};
+        assert.equal(model.rows(JSON.stringify(input))[0].windows[0].label, 'Weekly');
+    }
+    const input = {provider: 'v0', rateWindowLabels: {secondary: 'private@example.com rate limit'},
+        usage: {secondary: {usedPercent: 20}}};
+    assert.equal(model.rows(JSON.stringify(input), true)[0].windows[0].label, '[hidden email] rate limit');
+});
 test('reset countdown handles invalid and elapsed timestamps', () => {
     const now = Date.parse('2026-01-01T00:00:00Z');
     assert.equal(model.resetLabel('bad', now), 'Reset time unavailable');
@@ -84,4 +104,152 @@ test('display preferences keep underlying quota and reset data intact', () => {
     const time = '2030-01-01T00:00:00Z';
     assert.ok(model.resetText(time, 0, 'absolute').startsWith('Resets '));
     assert.ok(model.resetText(time, 0, 'both').includes(' · '));
+});
+
+const scopedWeekly = {usedPercent: 93, windowMinutes: 10080, resetsAt: '2030-01-02T00:00:00Z'};
+
+test('a provider-scoped cap reaches the model instead of being dropped', () => {
+    const row = model.rows(JSON.stringify([{provider: 'claude', usage: {
+        primary: {usedPercent: 21, windowMinutes: 300},
+        secondary: {usedPercent: 71, windowMinutes: 10080},
+        extraRateWindows: [{id: 'claude-weekly-scoped-fable', title: 'Fable only',
+            window: scopedWeekly}]}}]))[0];
+    assert.deepEqual([...row.windows.map(window => window.key)],
+        ['primary', 'secondary', 'extra:claude-weekly-scoped-fable']);
+    assert.equal(row.windows[2].label, 'Fable only');
+    assert.equal(row.windows[2].remaining, 7);
+    assert.equal(row.error, '');
+});
+test('extras follow the standard lanes so a cadence lookup still finds the general window', () => {
+    const row = model.rows(JSON.stringify([{provider: 'claude', usage: {
+        secondary: {usedPercent: 71, windowMinutes: 10080},
+        extraRateWindows: [{id: 'scoped', title: 'Fable only', window: scopedWeekly}]}}]))[0];
+    assert.equal(row.windows[0].key, 'secondary');
+});
+test('a window the provider cannot measure never becomes a quota', () => {
+    // Zed reports an overdue invoice this way; Antigravity a reset-only pool.
+    const row = model.rows(JSON.stringify([{provider: 'zed', usage: {
+        secondary: {usedPercent: 10, windowMinutes: 10080},
+        extraRateWindows: [{id: 'b', title: 'Billing', usageKnown: false,
+            window: {usedPercent: 100, windowMinutes: 10080}}]}}]))[0];
+    assert.equal(row.windows.length, 1);
+    assert.ok(!JSON.stringify(row).includes('Billing'));
+});
+test('a synthetic placeholder session is not a measured window', () => {
+    const row = model.rows(JSON.stringify([{provider: 'claude', usage: {
+        primary: {usedPercent: 0, windowMinutes: 300, isSyntheticPlaceholder: true},
+        secondary: {usedPercent: 39, windowMinutes: 10080}}}]))[0];
+    assert.deepEqual([...row.windows.map(window => window.key)], ['secondary']);
+});
+test('scoped titles are redacted for identity even when identity display is enabled', () => {
+    const input = JSON.stringify([{provider: 'claude', usage: {extraRateWindows: [
+        {id: 'scoped', title: 'Fable (private@example.com)', window: scopedWeekly}]}}]);
+    assert.equal(model.rows(input)[0].windows[0].label, 'Fable [hidden email]');
+    assert.equal(model.rows(input, true)[0].windows[0].label, 'Fable [hidden email]');
+});
+test('extras are bounded, counting lanes that render rather than entries received', () => {
+    const junk = Array.from({length: 8}, (_, index) => (
+        {id: 'junk-' + index, title: 'Junk', window: {usedPercent: null}}));
+    const row = model.rows(JSON.stringify([{provider: 'claude', usage: {extraRateWindows: [...junk,
+        {id: 'real', title: 'Fable only', window: scopedWeekly}]}}]))[0];
+    assert.deepEqual([...row.windows.map(window => window.key)], ['extra:real']);
+    const many = Array.from({length: 10}, (_, index) => (
+        {id: 'e' + index, title: 'Lane ' + index, window: {usedPercent: index, windowMinutes: 60}}));
+    assert.equal(model.rows(JSON.stringify([{provider: 'claude',
+        usage: {extraRateWindows: many}}]))[0].windows.length, 8);
+});
+test('existing fractional day labels are preserved', () => {
+    const row = model.rows(JSON.stringify([{provider: 'cursor',
+        usage: {primary: {usedPercent: 25, windowMinutes: 41040}}}]))[0];
+    assert.equal(row.windows[0].label, '28.5 day');
+});
+
+test('extras without stable identifiers cannot borrow another notification identity', () => {
+    const invalid = [undefined, null, false, 0, '', '  ', {}, []].map(id => ({id, title: 'Invalid',
+        window: scopedWeekly}));
+    const windows = model.rows(JSON.stringify([{provider: 'claude', usage: {extraRateWindows: [
+        ...invalid, {id: '0', title: 'Measured cap', window: scopedWeekly}
+    ]}}]))[0].windows;
+    assert.deepEqual([...windows.map(window => window.key)], ['extra:0']);
+});
+
+const pool = (usedPercent, windowMinutes, resetsAt) => ({usedPercent, windowMinutes, resetsAt});
+const quotaSummary = (id, title, window) => ({id: 'antigravity-quota-summary-' + id, title, usageKnown: true, window});
+
+test('a pool reported as a quota summary is listed once, in its representative slot', () => {
+    const geminiWeekly = pool(7, 10080, '2026-09-23T00:00:00Z');
+    const claudeSession = pool(0, 300, '2026-09-21T01:00:00Z');
+    const [row] = model.rows(JSON.stringify([{provider: 'antigravity', usage: {
+        primary: geminiWeekly, secondary: claudeSession, extraRateWindows: [
+            quotaSummary('gemini-5h', 'Gemini 5-hour', pool(3, 300, '2026-09-20T23:00:00Z')),
+            quotaSummary('gemini-weekly', 'Gemini weekly', geminiWeekly),
+            quotaSummary('claude-5h', 'Claude/GPT 5-hour', claudeSession),
+            quotaSummary('claude-weekly', 'Claude/GPT weekly', pool(0, 10080, '2026-09-27T00:00:00Z'))]}}]));
+    assert.deepEqual([...row.windows.map(window => window.key + ' ' + window.label + ' ' + window.remaining)], [
+        'extra:antigravity-quota-summary-gemini-weekly Gemini weekly 93',
+        'extra:antigravity-quota-summary-claude-5h Claude/GPT 5-hour 100',
+        'extra:antigravity-quota-summary-gemini-5h Gemini 5-hour 97',
+        'extra:antigravity-quota-summary-claude-weekly Claude/GPT weekly 100']);
+});
+
+test('family representatives still lead, so the summary and tray report the binding pools', () => {
+    const geminiWeekly = pool(95, 10080, '2026-09-23T00:00:00Z');
+    const claudeSession = pool(100, 300, '2026-09-21T01:00:00Z');
+    const rows = model.rows(JSON.stringify([{provider: 'antigravity', usage: {
+        primary: geminiWeekly, secondary: claudeSession, extraRateWindows: [
+            quotaSummary('gemini-5h', 'Gemini 5-hour', pool(0, 300, '2026-09-20T23:00:00Z')),
+            quotaSummary('gemini-weekly', 'Gemini weekly', geminiWeekly),
+            quotaSummary('claude-5h', 'Claude/GPT 5-hour', claudeSession)]}}]));
+    assert.equal(model.summary(rows, 'remaining'), 'antigravity 5%');
+    assert.deepEqual([...rows[0].windows.slice(0, 2).map(window => window.label + ' ' + window.remaining)],
+        ['Gemini weekly 5', 'Claude/GPT 5-hour 0']);
+});
+
+test('a representative listed beyond the extra limit is never hidden', () => {
+    const exhausted = pool(100, 300, '2026-09-21T01:00:00Z');
+    const idle = Array.from({length: 8}, (_, index) =>
+        quotaSummary('idle-' + index, 'Idle ' + index, pool(5, 300, '2026-09-21T0' + index + ':30:00Z')));
+    const [row] = model.rows(JSON.stringify([{provider: 'antigravity', usage: {
+        primary: exhausted, extraRateWindows: [...idle, quotaSummary('gemini-5h', 'Gemini 5-hour', exhausted)]}}]));
+    assert.equal(row.windows[0].label + ' ' + row.windows[0].remaining, 'Gemini 5-hour 0');
+    assert.equal(row.windows.length, 9);
+});
+
+test('representative matching is confined to Antigravity quota-summary buckets', () => {
+    const window = pool(50, 300, '2030-01-01T00:00:00Z');
+    for (const [provider, id] of [
+        ['claude', 'antigravity-quota-summary-gemini'],
+        ['antigravity', 'custom-quota-summary-gemini'],
+        ['antigravity', 'legacy-gemini']
+    ]) {
+        const [row] = model.rows(JSON.stringify([{provider, usage: {primary: window, extraRateWindows: [
+            {id, title: 'Gemini Session', window}]}}]));
+        assert.deepEqual([...row.windows.map(item => item.key)], ['primary', 'extra:' + id]);
+    }
+});
+
+test('an unrelated matching extra cannot take the quota-summary representative slot', () => {
+    const window = pool(50, 300, '2030-01-01T00:00:00Z');
+    const [row] = model.rows(JSON.stringify([{provider: 'antigravity', usage: {primary: window, extraRateWindows: [
+        {id: 'legacy-gemini', title: 'Gemini Legacy', window},
+        quotaSummary('gemini-session', 'Gemini Session', window)]}}]));
+    assert.deepEqual([...row.windows.map(item => item.label)], ['Gemini Session', 'Gemini Legacy']);
+});
+
+test('representative family titles remain redacted and distinct resets remain separate', () => {
+    const window = pool(50, 300, '2030-01-01T00:00:00Z');
+    const [row] = model.rows(JSON.stringify([{provider: 'antigravity', usage: {primary: window, extraRateWindows: [
+        quotaSummary('gemini-other', 'Gemini Other', {...window, resetsAt: '2030-01-02T00:00:00Z'}),
+        quotaSummary('gemini-session', 'Gemini private@example.com Session', window)]}}]), true);
+    assert.deepEqual([...row.windows.map(item => item.label)], ['Gemini [hidden email] Session', 'Gemini Other']);
+    assert.equal(row.windows.length, 2);
+});
+
+test('identical same-family windows use Core title ordering for the representative', () => {
+    const window = pool(50, 300, '2030-01-01T00:00:00Z');
+    const [row] = model.rows(JSON.stringify([{provider: 'antigravity', usage: {primary: window, extraRateWindows: [
+        quotaSummary('gemini-zebra', 'Gemini Zebra', window),
+        quotaSummary('gemini-amber', 'gemini amber', window)]}}]));
+    assert.deepEqual([...row.windows.map(item => item.key)], [
+        'extra:antigravity-quota-summary-gemini-amber', 'extra:antigravity-quota-summary-gemini-zebra']);
 });
