@@ -1637,3 +1637,4 @@
 "antigravity_cost_estimate_hint" = "Uso local × preços públicos da API · não são cobranças ou créditos da Antigravity";
 "antigravity_quota_window_note" = "O custo da janela cobre todos os modelos · a janela exibida é a família mais restrita";
 "antigravity_no_priced_token_history" = "Nenhum histórico de tokens da Antigravity com preço disponível.";
+"Grok account list could not be read." = "Grok account list could not be read.";

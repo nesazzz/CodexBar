@@ -108,6 +108,43 @@ struct GrokVisibleAccountProjectionTests {
             liveAccount: projection.visibleAccounts.first,
             managedAccounts: []) == .liveSystem)
     }
+
+    @Test
+    @MainActor
+    func `unreadable managed store keeps the saved selection`() throws {
+        let settings = testSettingsStore(suiteName: "GrokUnreadableStore")
+        let accountID = UUID()
+        settings.grokActiveSource = .managedAccount(id: accountID)
+        let store = FileManagedGrokAccountStore()
+        let previous = try? store.loadAccounts()
+        defer { if let previous { try? store.storeAccounts(previous) } }
+        try Data("not-json".utf8).write(to: FileManagedGrokAccountStore.defaultURL())
+        #expect(settings.grokManagedAccountStoreIsUnreadable)
+        #expect(settings.grokResolvedActiveSource == .managedAccount(id: accountID))
+        #expect(settings.persistResolvedGrokActiveSourceCorrectionIfNeeded() == false)
+        #expect(settings.grokUsesHomeAccounts)
+        let implementation = GrokProviderImplementation()
+        let context = ProviderSettingsContext(
+            provider: .grok,
+            settings: settings,
+            store: UsageStore(
+                fetcher: UsageFetcher(environment: [:]),
+                browserDetection: BrowserDetection(cacheTTL: 0),
+                settings: settings,
+                startupBehavior: .testing),
+            statusText: { _ in nil },
+            setStatusText: { _, _ in },
+            lastAppActiveRunAt: { _ in nil },
+            setLastAppActiveRunAt: { _, _ in },
+            requestConfirmation: { _ in },
+            runLoginFlow: {})
+        let picker = try #require(implementation.settingsPickers(context: context)
+            .first { $0.id == "grok-usage-source" })
+        #expect(picker.isEnabled?() == false)
+        #expect(try implementation.tokenAccountsVisibility(
+            context: context,
+            support: #require(TokenAccountSupportCatalog.support(for: .grok))) == false)
+    }
 }
 
 struct GrokHomeScopeTests {
@@ -456,6 +493,56 @@ private struct GrokManagedOwnershipTestStrategy: ProviderFetchStrategy {
             strategyID: self.id,
             strategyKind: self.kind)
     }
+}
+
+@Test
+@MainActor
+func `managed history does not use the selected pasted account`() async throws {
+    let settings = testSettingsStore(suiteName: "GrokHistoryOwner")
+    settings.historicalTrackingEnabled = true
+    settings.addTokenAccount(provider: .grok, label: "Pasted", token: "fake-token")
+    let pasted = try #require(settings.tokenAccounts(for: .grok).first)
+    let managedID = UUID()
+    let account = GrokVisibleAccount(
+        id: managedID.uuidString,
+        email: "managed@example.com",
+        storedAccountID: managedID,
+        selectionSource: .managedAccount(id: managedID),
+        managedHomePath: "/tmp/managed-grok",
+        isActive: true,
+        isLive: false,
+        canReauthenticate: true,
+        canRemove: true)
+    let store = UsageStore(
+        fetcher: UsageFetcher(environment: [:]),
+        browserDetection: BrowserDetection(cacheTTL: 0),
+        settings: settings,
+        startupBehavior: .testing,
+        environmentBase: [:])
+    let snapshot = UsageSnapshot(
+        primary: RateWindow(
+            usedPercent: 22,
+            windowMinutes: 7 * 24 * 60,
+            resetsAt: Date().addingTimeInterval(86400),
+            resetDescription: nil),
+        secondary: nil,
+        updatedAt: Date())
+    await store.recordPlanUtilizationHistorySample(
+        provider: .grok,
+        snapshot: snapshot,
+        account: store.grokPlanHistoryAccount(for: account))
+    let managedBuckets = try #require(store.planUtilizationHistory[.grok])
+    let pastedOnly = UsageStore(
+        fetcher: UsageFetcher(environment: [:]),
+        browserDetection: BrowserDetection(cacheTTL: 0),
+        settings: settings,
+        startupBehavior: .testing,
+        environmentBase: [:])
+    await pastedOnly.recordPlanUtilizationHistorySample(provider: .grok, snapshot: snapshot)
+    let pastedBuckets = try #require(pastedOnly.planUtilizationHistory[.grok])
+    #expect(managedBuckets.preferredAccountKey != nil)
+    #expect(managedBuckets.preferredAccountKey != pastedBuckets.preferredAccountKey)
+    _ = pasted
 }
 
 struct GrokAccountSwitcherPrivacyTests {

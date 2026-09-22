@@ -1483,7 +1483,8 @@ extension UsageStore {
         account: ProviderTokenAccount?,
         fallbackSnapshot: UsageSnapshot?,
         fallbackAccountSnapshot: TokenAccountUsageSnapshot? = nil,
-        generation: UInt64? = nil) async
+        generation: UInt64? = nil,
+        historyAccount: ProviderTokenAccount? = nil) async
     {
         guard self.isCurrentProviderRefreshGeneration(provider, generation: generation) else { return }
         if case .failure = outcome.result, let account,
@@ -1538,7 +1539,7 @@ extension UsageStore {
             await self.recordPlanUtilizationHistorySample(
                 provider: provider,
                 snapshot: backfilled,
-                account: account)
+                account: historyAccount ?? account)
             guard self.isCurrentProviderRefreshGeneration(provider, generation: generation) else { return }
             self.emitUsageUpdatedHook(
                 provider: provider,

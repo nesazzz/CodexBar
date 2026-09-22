@@ -2,6 +2,7 @@ import Foundation
 
 public struct GrokVisibleAccount: Equatable, Identifiable, Sendable {
     public static let liveAccountID = "live"
+    public static let liveHistoryAccountID = UUID(uuidString: "6f0c0b7e-5a1d-4c3a-9b2e-1d4f8a7c6b50")!
 
     public let id: String
     public let email: String
@@ -71,8 +72,12 @@ public enum GrokActiveSourceResolver {
     public static func resolve(
         persistedSource: GrokActiveSource,
         liveAccount: GrokVisibleAccount?,
-        managedAccounts: [ManagedGrokAccount]) -> GrokActiveSource
+        managedAccounts: [ManagedGrokAccount],
+        preservesMissingManagedSelection: Bool = false) -> GrokActiveSource
     {
+        if preservesMissingManagedSelection, case .managedAccount = persistedSource {
+            return persistedSource
+        }
         switch persistedSource {
         case .liveSystem:
             if liveAccount != nil { return .liveSystem }
@@ -116,7 +121,8 @@ public enum GrokVisibleAccountProjectionFactory {
         let resolvedSource = GrokActiveSourceResolver.resolve(
             persistedSource: persistedSource,
             liveAccount: liveAccount,
-            managedAccounts: managedAccounts)
+            managedAccounts: managedAccounts,
+            preservesMissingManagedSelection: hasUnreadableAddedAccountStore)
 
         var accounts: [GrokVisibleAccount] = []
         if let liveAccount {

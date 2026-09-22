@@ -25,6 +25,9 @@ CodexBar can add extra SuperGrok OAuth accounts without overwriting `~/.grok`.
 - The menu follows Settings → Menu → Content → Multi-account layout, same as Codex: segmented switcher by default, stacked cards when that layout is selected.
 - Explicit System cards use the System auth file and OAuth, ignoring competing pasted tokens and browser cookies. Ordinary ambient refreshes keep their existing credential precedence.
 - Managed refreshes use their own account snapshots, including when only one managed account exists; they never populate pasted-token account caches. The captured OAuth identity must match the expected account before billing is requested.
+- An unreadable managed-account file keeps the saved managed selection and fails the refresh before any other credential is used.
+- Managed usage history is stored under the managed account, not under a saved pasted token.
+- While a managed account exists, the usage-source picker, cookie fields, and pasted-token selector are inactive. Remove the managed accounts to use those sources again.
 - CodexBar does not copy or refresh Grok tokens; re-auth runs `grok login --device-auth` against that home.
 
 ## Settings source picker

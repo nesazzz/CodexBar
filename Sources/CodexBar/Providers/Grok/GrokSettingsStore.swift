@@ -3,7 +3,10 @@ import Foundation
 
 extension SettingsStore {
     var grokUsesHomeAccounts: Bool {
-        !self.grokManagedAccounts.isEmpty || self.grokVisibleAccountProjection.visibleAccounts.count > 1
+        if case .managedAccount = self.grokPersistedActiveSource, self.grokManagedAccountStoreIsUnreadable {
+            return true
+        }
+        return !self.grokManagedAccounts.isEmpty || self.grokVisibleAccountProjection.visibleAccounts.count > 1
     }
 
     var grokUsageDataSource: ProviderSourceMode {
@@ -64,7 +67,8 @@ extension SettingsStore {
         GrokActiveSourceResolver.resolve(
             persistedSource: self.grokPersistedActiveSource,
             liveAccount: self.grokVisibleAccountProjection.account(id: GrokVisibleAccount.liveAccountID),
-            managedAccounts: self.grokManagedAccounts)
+            managedAccounts: self.grokManagedAccounts,
+            preservesMissingManagedSelection: self.grokManagedAccountStoreIsUnreadable)
     }
 
     var grokManagedAccounts: [ManagedGrokAccount] {

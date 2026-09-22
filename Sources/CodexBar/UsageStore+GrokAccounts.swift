@@ -44,6 +44,16 @@ extension UsageStore {
     }
 
     func refreshGrokVisibleAccountsForMenu(generation: UInt64? = nil) async {
+        if case .managedAccount = self.settings.grokPersistedActiveSource,
+           self.settings.grokManagedAccountStoreIsUnreadable
+        {
+            self.grokAccountSnapshots = []
+            self.snapshots[.grok] = nil
+            self.lastKnownResetSnapshots[.grok] = nil
+            self.errors[.grok] = L("Grok account list could not be read.")
+            self.lastSourceLabels[.grok] = nil
+            return
+        }
         let projection = self.settings.grokVisibleAccountProjection
         let accounts = self.settings.multiAccountMenuLayout == .stacked
             ? projection.visibleAccounts
@@ -116,16 +126,31 @@ extension UsageStore {
             self.activateCachedGrokAccountSnapshot(visibleAccountID: activeID)
         }
         if currentProjection.activeVisibleAccountID == originalVisibleAccountID, let selectedOutcome {
+            let publishedAccount = currentProjection.account(id: originalVisibleAccountID ?? "")
             await self.applySelectedOutcome(
                 selectedOutcome,
                 provider: .grok,
                 account: nil,
                 fallbackSnapshot: selectedSnapshot,
-                generation: generation)
-            if let selectedSnapshot {
-                self.snapshots[.grok] = selectedSnapshot
-            }
+                generation: generation,
+                historyAccount: self.grokPlanHistoryAccount(for: publishedAccount))
+            guard self.isCurrentProviderRefreshGeneration(.grok, generation: generation),
+                  self.settings.grokVisibleAccountProjection.activeVisibleAccountID == originalVisibleAccountID,
+                  let selectedSnapshot
+            else { return }
+            self.snapshots[.grok] = selectedSnapshot
         }
+    }
+
+    func grokPlanHistoryAccount(for account: GrokVisibleAccount?) -> ProviderTokenAccount? {
+        guard let account else { return nil }
+        let id = account.storedAccountID ?? GrokVisibleAccount.liveHistoryAccountID
+        return ProviderTokenAccount(
+            id: id,
+            label: account.email,
+            token: "",
+            addedAt: 0,
+            lastUsed: nil)
     }
 
     private func fetchGrokVisibleAccountOutcomes(_ accounts: [GrokVisibleAccount]) async

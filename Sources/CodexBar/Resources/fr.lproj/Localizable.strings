@@ -1636,3 +1636,4 @@
 "antigravity_cost_estimate_hint" = "Usage local × tarifs API publics · ni frais ni crédits Antigravity";
 "antigravity_quota_window_note" = "Le coût de la fenêtre couvre tous les modèles · la fenêtre affichée est la famille la plus contrainte";
 "antigravity_no_priced_token_history" = "Aucun historique de tokens Antigravity tarifé n'est disponible.";
+"Grok account list could not be read." = "Grok account list could not be read.";

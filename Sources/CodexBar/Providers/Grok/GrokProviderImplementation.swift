@@ -18,6 +18,13 @@ struct GrokProviderImplementation: ProviderImplementation {
     }
 
     @MainActor
+    func tokenAccountsVisibility(context: ProviderSettingsContext, support: TokenAccountSupport) -> Bool {
+        if context.settings.grokUsesHomeAccounts { return false }
+        guard support.requiresManualCookieSource else { return true }
+        return !context.settings.tokenAccounts(for: context.provider).isEmpty
+    }
+
+    @MainActor
     func openTokenFile(context _: ProviderSettingsContext) -> Bool {
         let url = GrokCredentialsStore.tokenFileURLToOpen()
         try? FileManager.default.createDirectory(
@@ -46,15 +53,22 @@ struct GrokProviderImplementation: ProviderImplementation {
             ProviderSettingsPickerOption(
                 id: ProviderSourceMode.web.rawValue, title: "Browser cookies"),
         ]
+        let managedAccountsOwnRouting = { context.settings.grokUsesHomeAccounts }
         return [
             ProviderSettingsPickerDescriptor(
                 id: "grok-usage-source",
                 title: "Usage source",
                 subtitle:
                 "Auto tries the Grok CLI, SuperGrok OAuth, browser cookies, then bearer gRPC.",
+                dynamicSubtitle: {
+                    managedAccountsOwnRouting()
+                        ? "Managed accounts use their own OAuth homes. Remove them to change this source."
+                        : nil
+                },
                 binding: sourceBinding,
                 options: sourceOptions,
                 isVisible: nil,
+                isEnabled: { !managedAccountsOwnRouting() },
                 onChange: nil),
             ProviderCookieSourceUI.picker(
                 id: "grok-cookie-source",
@@ -68,8 +82,9 @@ struct GrokProviderImplementation: ProviderImplementation {
                         off: L("%@ cookies are disabled.", "Grok"))
                 },
                 isVisible: {
-                    context.settings.grokUsageDataSource == .auto
-                        || context.settings.grokUsageDataSource == .web
+                    !managedAccountsOwnRouting() &&
+                        (context.settings.grokUsageDataSource == .auto
+                            || context.settings.grokUsageDataSource == .web)
                 },
                 onChange: nil),
         ]
@@ -92,8 +107,9 @@ struct GrokProviderImplementation: ProviderImplementation {
                         url: URL(string: "https://grok.com/?_s=usage")),
                 ],
                 isVisible: {
-                    (context.settings.grokUsageDataSource == .auto
-                        || context.settings.grokUsageDataSource == .web)
+                    !context.settings.grokUsesHomeAccounts &&
+                        (context.settings.grokUsageDataSource == .auto
+                            || context.settings.grokUsageDataSource == .web)
                         && context.settings.grokCookieSource == .manual
                 }),
         ]
